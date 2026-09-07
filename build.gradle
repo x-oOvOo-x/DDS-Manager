@@ -1,0 +1,88 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+group = 'ddsmanager'
+version = project.version
+
+def javaToolchainVersion = providers.gradleProperty('javaToolchainVersion').orElse('21').get().toInteger()
+def javaRelease = providers.gradleProperty('javaRelease').orElse('21').get().toInteger()
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(javaToolchainVersion) }
+    withSourcesJar()
+}
+
+// Velocity 4 API metadata declares JVM 25. Compatibility jobs compile it with JDK 25
+// while --release 21 keeps the distributable plugin bytecode usable on Velocity 3.x.
+configurations.configureEach {
+    if (canBeResolved) attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, javaToolchainVersion)
+}
+
+def generatedBuildInfoDir = layout.buildDirectory.dir('generated/sources/buildInfo/java/main')
+sourceSets.main.java.srcDir(generatedBuildInfoDir)
+
+tasks.register('generateBuildInfo') {
+    inputs.property('version', project.version.toString()); outputs.dir(generatedBuildInfoDir)
+    doLast {
+        def output = generatedBuildInfoDir.get().file('ddsmanager/BuildInfo.java').asFile
+        output.parentFile.mkdirs(); output.text = """package ddsmanager;
+
+public final class BuildInfo {
+    public static final String VERSION = "${project.version}";
+    private BuildInfo() {}
+}
+"""
+    }
+}
+tasks.named('compileJava') { dependsOn 'generateBuildInfo' }
+tasks.named('sourcesJar') { dependsOn 'generateBuildInfo' }
+
+repositories {
+    mavenCentral()
+    maven { name = 'papermc'; url = 'https://repo.papermc.io/repository/maven-public/' }
+    maven { name = 'codemcReleases'; url = 'https://repo.codemc.io/repository/maven-releases/' }
+    maven { name = 'codemcSnapshots'; url = 'https://repo.codemc.io/repository/maven-snapshots/' }
+}
+
+dependencies {
+    compileOnly "com.velocitypowered:velocity-api:${velocityVersion}"
+    annotationProcessor "com.velocitypowered:velocity-api:${velocityVersion}"
+    implementation("com.github.retrooper:packetevents-velocity:${packetEventsVersion}") { exclude group: 'com.velocitypowered', module: 'velocity-api' }
+    implementation "com.google.code.gson:gson:${gsonVersion}"
+    testImplementation "com.velocitypowered:velocity-api:${velocityVersion}"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = javaRelease }
+test { useJUnitPlatform() }
+
+shadowJar {
+    archiveClassifier = ''; mergeServiceFiles()
+    relocate 'com.google.gson', 'ddsmanager.lib.gson'
+    relocate 'com.github.retrooper.packetevents', 'ddsmanager.lib.packetevents.api'
+    relocate 'io.github.retrooper.packetevents', 'ddsmanager.lib.packetevents.platform'
+}
+
+tasks.register('verifyDistribution') {
+    dependsOn shadowJar
+    doLast {
+        def zip = new java.util.zip.ZipFile(shadowJar.archiveFile.get().asFile)
+        try {
+            def metadata = zip.getEntry('velocity-plugin.json'); if (metadata == null) throw new GradleException('Missing velocity-plugin.json')
+            def text = zip.getInputStream(metadata).getText('UTF-8')
+            if (!text.contains('dds-manager') || text.contains('"id": "packetevents"')) throw new GradleException('PacketEvents metadata replaced DDS Manager metadata')
+            if (zip.getEntry('ddsmanager/lib/packetevents/api/PacketEvents.class') == null) throw new GradleException('Embedded PacketEvents API missing')
+            if (zip.getEntry('ddsmanager/lib/packetevents/platform/velocity/factory/VelocityPacketEventsBuilder.class') == null) throw new GradleException('Embedded PacketEvents Velocity implementation missing')
+            if (zip.entries().any { it.name.startsWith('ddsmanager/lib/minimessage/') || it.name.startsWith('net/kyori/adventure/text/minimessage/') })
+                throw new GradleException('MiniMessage must not be embedded; it is unsafe across Velocity plugin classloaders')
+            if (zip.getEntry('com/github/retrooper/packetevents/PacketEvents.class') != null || zip.getEntry('io/github/retrooper/packetevents/velocity/factory/VelocityPacketEventsBuilder.class') != null)
+                throw new GradleException('Embedded dependency relocation incomplete')
+        } finally { zip.close() }
+    }
+}
+
+jar { archiveClassifier = 'plain' }
+build.dependsOn shadowJar, verifyDistribution
