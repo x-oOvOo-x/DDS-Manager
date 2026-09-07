@@ -41,7 +41,6 @@
 
 `dimensionSymbol` 支持 1–4 个可见字符，可改为 `▏`、`│`、`|`、`·` 或资源包字体 Glyph；颜色不可通过配置覆盖。关闭 `showDimensionInTabName` 后只隐藏维度符号，不影响服务器标签或 Ping。
 
-DDS 不提供昵称功能，Tab 始终显示玩家真实 Java 用户名；身份、白名单和权限始终以正版 UUID/用户名为准。
 
 ## 服务器名称 / 标签格式
 
@@ -84,22 +83,14 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 
 支持的命名颜色：`black`、`dark_blue`、`dark_green`、`dark_aqua`、`dark_red`、`dark_purple`、`gold`、`gray`、`dark_gray`、`blue`、`green`、`aqua`、`red`、`light_purple`、`yellow`、`white`；`grey` / `dark_grey` 也可用。
 
-需要直接显示 `<`、`>` 或 `\` 时可写 `\<`、`\>`、`\\`。标签模板最长 128 个 Unicode 码点。`<click>`、`<hover>`、`<insertion>`、未知标签、闭合错误等会被拒绝，避免通过配置注入交互事件；DDS 自己需要的 Hover/Click 会在组件层单独附加。
+需要直接显示 `<`、`>` 或 `\` 时可写 `\<`、`\>`、`\\`。标签模板最长 128 个 Unicode 码点。`<click>`、`<hover>`、`<insertion>`、未知标签、闭合错误等会被拒绝，避免通过配置注入交互事件。
 
-资源包自定义图标示例：假设资源包字体将 `\uE001` 映射为服务器图标，可写：
-
-```json
-"serverLabels": {
-  "survival": "<font:dds:icons></font><#55ff88><bold>S</bold></#55ff88>"
-}
-```
 
 最终 Tab 可得到类似：
 
 ```text
 ⁑ [S]PlayerID
 ⁑ ✦C✦PlayerID
-⁑ <自定义图标>SPlayerID
 ```
 
 ## 管理员与权限
@@ -130,11 +121,6 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 
 首次启动会根据现有全网授权生成该文件。修改后执行 `/dds reload` 并点击一次 `[Confirm]` 即可同步：新增名字会成为 pending，首次正版登录后绑定 UUID；移除名字只撤销全网 scope，玩家的分服/服务器组授权仍保留。文件格式或玩家名无效时整次同步被拒绝，不会按残缺内容部分删除。命令修改全网白名单和快照导入后也会自动回写此文件。
 
-## 白名单快照与可靠性
-
-`/dds whitelist export [file]` 生成 UUID 快照，历史同名账号分别保存；导入时已知 UUID 保持当前名字，不将旧账号授权转给同名新账号。未知名字仍作为 pending，兼容旧版按玩家名保存的快照。导入会先校验完整文件，无效 UUID、玩家名、授权或重复身份会拒绝整次导入；磁盘写入失败会单独报告，已成功保存的条目不会回滚。
-
-管理任务执行前再次检查连接与权限，排队期间撤权或退出会取消操作。配置修改写盘成功后才生效；重载配置失败时保留运行配置。启动时无法读取配置则继续使用白名单开启的安全默认值。
 
 ## 常用管理命令
 
@@ -155,8 +141,6 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 /dds group add|remove <group> <server...>
 /dds group list [group]
 ```
-
-危险操作统一使用单次确认：`[DDS] 危险操作：<操作说明> [Confirm]`；点击后直接执行并只输出最终结果。审计日志位于 `logs/audit-YYYY-MM-DD.log`。
 
 ## 构建与许可
 
