@@ -58,9 +58,11 @@ public final class NetworkPresenceService {
         Component badge = serverLabel(server).hoverEvent(HoverEvent.showText(Component.text(server + "\n维度: " + dimension.displayName + (switchCommand == null ? "" : "\n点击切换服务器"), NamedTextColor.GRAY)));
         return switchCommand == null ? badge : badge.clickEvent(ClickEvent.runCommand(switchCommand));
     }
-    public Component switchBadge(Player player, String server) {
-        State state = states.get(player.getUniqueId()); Dimension dimension = state != null && state.server().equalsIgnoreCase(server) ? state.dimension() : Dimension.UNKNOWN;
-        return Component.text(ServerLabelFormatter.plainText(config.get().presence.serverLabel(server)), NamedTextColor.GRAY).hoverEvent(HoverEvent.showText(Component.text("服务器: " + server + "\n维度: " + dimension.displayName, NamedTextColor.GRAY)));
+    public Component switchBadge(Player player, String server) { return switchBadge(server, null, NamedTextColor.GRAY); }
+    public Component switchBadge(String server, String switchCommand, NamedTextColor color) {
+        Component badge = Component.text(ServerLabelFormatter.plainText(config.get().presence.serverLabel(server)), color)
+                .hoverEvent(HoverEvent.showText(Component.text("服务器: " + server + (switchCommand == null ? "" : "\n点击切换服务器"), NamedTextColor.GRAY)));
+        return switchCommand == null ? badge : badge.clickEvent(ClickEvent.runCommand(switchCommand));
     }
     public Component chatBadge(Player player, String switchCommand) { return serverBadge(player, ChatBridgeService.serverName(player), switchCommand).append(Component.space()); }
     private Component serverLabel(String server) { return ServerLabelFormatter.render(config.get().presence.serverLabel(server), NamedTextColor.GRAY); }

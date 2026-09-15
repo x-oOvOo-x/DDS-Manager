@@ -39,7 +39,8 @@ public final class TabSyncService {
         UUID uuid = subject.getUniqueId(); boolean remote = !ChatBridgeService.serverName(viewer).equalsIgnoreCase(ChatBridgeService.serverName(subject));
         PluginConfig.Presence p = config.get().presence;
         Component display = p.showServerInTabName || p.showDimensionInTabName ? presence.tabName(subject) : null;
-        int latency = (int) Math.min(Integer.MAX_VALUE, Math.max(-1L, subject.getPing())); var existing = tab.getEntry(uuid);
+        var existing = tab.getEntry(uuid); int fallbackLatency = existing.map(TabListEntry::getLatency).orElse(0);
+        int latency = displayLatency(subject.getPing(), fallbackLatency);
         if (existing.isPresent()) { if (existing.get().getLatency() != latency) existing.get().setLatency(latency); applyDisplay(existing.get(), styled, uuid, display); if (remote) ours.add(uuid); else ours.remove(uuid); return; }
         if (!remote) { ours.remove(uuid); styled.remove(uuid); return; }
         try {
@@ -47,6 +48,10 @@ public final class TabSyncService {
             if (display != null) { builder.displayName(display); styled.put(uuid, display); }
             tab.addEntry(builder.build()); ours.add(uuid);
         } catch (RuntimeException e) { logger.debug("Unable to add remote tab entry {} -> {}", subject.getUsername(), viewer.getUsername(), e); }
+    }
+    static int displayLatency(long ping, int fallback) {
+        if (ping >= 0) return (int) Math.min(Integer.MAX_VALUE, ping);
+        return Math.max(0, fallback);
     }
     private static void applyDisplay(TabListEntry entry, Map<UUID, Component> styled, UUID uuid, Component next) {
         Component previous = styled.get(uuid);

@@ -57,7 +57,12 @@ public final class ConnectionListener {
         if (plugin.proxy().getPlayer(player.getUniqueId()).filter(current -> current != player).isPresent()) return;
         plugin.sessions().remove(player).ifPresent(profile -> {
             profile.lastSeenEpochMs = System.currentTimeMillis(); plugin.players().saveNow(profile);
-            player.getCurrentServer().ifPresent(connection -> { if (plugin.config().features.bridgeJoinLeave) plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 离开了 [" + connection.getServerInfo().getName() + "]", NamedTextColor.YELLOW), player); });
+            player.getCurrentServer().ifPresent(connection -> {
+                if (!plugin.config().features.bridgeJoinLeave) return;
+                String server = connection.getServerInfo().getName();
+                plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 离开 ", NamedTextColor.YELLOW)
+                        .append(plugin.presence().switchBadge(server, plugin.switcher().command(server), NamedTextColor.YELLOW)), player);
+            });
         });
         plugin.presence().clear(player); plugin.switcher().clear(player); plugin.tabSync().removeSubject(player.getUniqueId()); plugin.tabSync().clearViewer(player);
     }

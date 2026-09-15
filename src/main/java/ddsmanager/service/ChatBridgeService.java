@@ -4,7 +4,6 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import ddsmanager.config.PluginConfig;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.util.function.Supplier;
@@ -18,11 +17,7 @@ public final class ChatBridgeService {
 
     public ChatBridgeService(ProxyServer proxy, PlayerSessionService sessions, Supplier<PluginConfig> config,
                              NetworkPresenceService presence, ServerSwitchService switcher) {
-        this.proxy = proxy;
-        this.sessions = sessions;
-        this.config = config;
-        this.presence = presence;
-        this.switcher = switcher;
+        this.proxy = proxy; this.sessions = sessions; this.config = config; this.presence = presence; this.switcher = switcher;
     }
 
     public void bridge(Player sender, String message) {
@@ -31,17 +26,15 @@ public final class ChatBridgeService {
         if (profile == null || !"global".equalsIgnoreCase(profile.channel)) return;
 
         String server = serverName(sender);
-        TextComponent.Builder builder = Component.text();
-        if (config.get().chat.showServerPrefix)
-            builder.append(presence.chatBadge(sender, switcher.command(server)));
-        Component component = builder.append(Component.text("<" + sender.getUsername() + "> ", NamedTextColor.GRAY))
-                .append(Component.text(message)).build();
+        Component component = Component.text()
+                .append(presence.chatBadge(sender, switcher.command(server)))
+                .append(Component.text("<" + sender.getUsername() + "> ", NamedTextColor.GRAY))
+                .append(Component.text(message, NamedTextColor.GRAY)).build();
 
         for (Player recipient : proxy.getAllPlayers()) {
             if (recipient.equals(sender) || sameServer(sender, recipient)) continue;
-            sessions.get(recipient).ifPresent(p -> {
-                if ("global".equalsIgnoreCase(p.channel)) recipient.sendMessage(component);
-            });
+            var target = sessions.get(recipient).orElse(null);
+            if (target != null && "global".equalsIgnoreCase(target.channel)) recipient.sendMessage(component);
         }
     }
 
@@ -54,7 +47,5 @@ public final class ChatBridgeService {
         return player.getCurrentServer().map(c -> c.getServerInfo().getName()).orElse("proxy");
     }
 
-    private static boolean sameServer(Player a, Player b) {
-        return serverName(a).equalsIgnoreCase(serverName(b));
-    }
+    private static boolean sameServer(Player a, Player b) { return serverName(a).equalsIgnoreCase(serverName(b)); }
 }

@@ -20,7 +20,7 @@ public final class ServerSwitchListener {
         var connection = player.getCurrentServer().orElse(null);
         String current = connection == null ? "" : connection.getServerInfo().getName();
         String previous = event.getPreviousServer() == null ? "" : event.getPreviousServer().getServerInfo().getName();
-        Component previousBadge = previous.isBlank() ? Component.empty() : plugin.presence().switchBadge(player, previous);
+        Component previousBadge = previous.isBlank() ? Component.empty() : plugin.presence().switchBadge(previous, plugin.switcher().command(previous), NamedTextColor.GRAY);
         plugin.presence().connected(player, current);
         var profile = plugin.sessions().get(player).orElse(null);
         if (profile == null) return;
@@ -35,7 +35,8 @@ public final class ServerSwitchListener {
         boolean switchNotice = plugin.config().features.bridgeJoinLeave && plugin.config().presence.showServerSwitches
                 && !previous.isBlank() && !previous.equalsIgnoreCase(current);
         if (plugin.config().features.bridgeJoinLeave && previous.isBlank())
-            plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 加入了 [" + current + "]", NamedTextColor.GREEN), player);
+            plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 连接至 ", NamedTextColor.YELLOW)
+                    .append(plugin.presence().switchBadge(current, plugin.switcher().command(current), NamedTextColor.YELLOW)), player);
 
         if (plugin.config().features.syncTabList || switchNotice) {
             plugin.proxy().getScheduler().buildTask(plugin, () -> {
@@ -45,7 +46,8 @@ public final class ServerSwitchListener {
                     plugin.logger().info("DDS Presence recovered: {} @ {} -> {}", player.getUsername(), current, plugin.presence().diagnostic(player));
                 if (switchNotice) plugin.chatBridge().broadcastPresence(
                         Component.text(player.getUsername() + " ", NamedTextColor.GRAY).append(previousBadge)
-                                .append(Component.text(" ➧ ", NamedTextColor.GRAY)).append(plugin.presence().switchBadge(player, current)), player);
+                                .append(Component.text(" ▸ ", NamedTextColor.GRAY))
+                                .append(plugin.presence().switchBadge(current, plugin.switcher().command(current), NamedTextColor.GRAY)), player);
                 if (plugin.config().features.syncTabList) { plugin.tabSync().refreshViewer(player); plugin.tabSync().refreshSubject(player); }
             }).delay(250, TimeUnit.MILLISECONDS).schedule();
         }
