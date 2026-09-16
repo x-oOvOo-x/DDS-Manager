@@ -1,0 +1,92 @@
+name: build
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - velocity: '3.6.0-SNAPSHOT'
+            java: '21'
+            toolchain: '21'
+          - velocity: '4.0.0'
+            java: '25'
+            toolchain: '25'
+          - velocity: '4.1.0'
+            java: '25'
+            toolchain: '25'
+          - velocity: '4.1.1'
+            java: '25'
+            toolchain: '25'
+          - velocity: '4.2.0'
+            java: '25'
+            toolchain: '25'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew clean build --stacktrace -PvelocityVersion=${{ matrix.velocity }} -PjavaToolchainVersion=${{ matrix.toolchain }} -PjavaRelease=21
+
+  publish:
+    needs: compatibility
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version=//p' gradle.properties)"
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Build release jar
+        if: steps.version.outputs.exists != 'true'
+        run: ./gradlew clean shadowJar verifyDistribution --stacktrace
+      - name: Publish release
+        if: steps.version.outputs.exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$JAR"
+          cp "$JAR" "DDS-Manager-$VERSION.jar"
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          gh release create "$TAG" "DDS-Manager-$VERSION.jar" --verify-tag --title "DDS Manager $VERSION" --notes $'- 轻量协议层支持 Minecraft 1.14.4–26.x 与 Velocity 3.6–4.2。\n- 修复同服维度刷新和跨服 Tab 显示，保留真实 Ping。\n- 为 Xaero/VoxelMap 提供持久化世界标识。\n- 收紧运行时生命周期、配置写回与默认日志输出。'

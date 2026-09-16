@@ -1,0 +1,86 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+group = 'ddsmanager'
+version = project.version
+
+def javaToolchainVersion = providers.gradleProperty('javaToolchainVersion').orElse('21').get().toInteger()
+def javaRelease = providers.gradleProperty('javaRelease').orElse('21').get().toInteger()
+def nettyCompileVersion = providers.gradleProperty('nettyCompileVersion').orElse('4.1.118.Final').get()
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(javaToolchainVersion) }
+    withSourcesJar()
+}
+
+// Velocity 4 API metadata declares JVM 25. Compatibility jobs compile it with JDK 25
+// while --release 21 keeps the distributable plugin bytecode usable on Velocity 3.x.
+configurations.configureEach {
+    if (canBeResolved) attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, javaToolchainVersion)
+}
+
+def generatedBuildInfoDir = layout.buildDirectory.dir('generated/sources/buildInfo/java/main')
+sourceSets.main.java.srcDir(generatedBuildInfoDir)
+
+tasks.register('generateBuildInfo') {
+    inputs.property('version', project.version.toString()); outputs.dir(generatedBuildInfoDir)
+    doLast {
+        def output = generatedBuildInfoDir.get().file('ddsmanager/BuildInfo.java').asFile
+        output.parentFile.mkdirs(); output.text = """package ddsmanager;
+
+public final class BuildInfo {
+    public static final String VERSION = "${project.version}";
+    private BuildInfo() {}
+}
+"""
+    }
+}
+tasks.named('compileJava') { dependsOn 'generateBuildInfo' }
+tasks.named('sourcesJar') { dependsOn 'generateBuildInfo' }
+
+repositories {
+    mavenCentral()
+    maven { name = 'papermc'; url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    compileOnly "com.velocitypowered:velocity-api:${velocityVersion}"
+    annotationProcessor "com.velocitypowered:velocity-api:${velocityVersion}"
+    // Netty is provided by Velocity. Compile against the stable 4.1 API surface and never shade it.
+    compileOnly "io.netty:netty-transport:${nettyCompileVersion}"
+    implementation "com.google.code.gson:gson:${gsonVersion}"
+    testImplementation "com.velocitypowered:velocity-api:${velocityVersion}"
+    testImplementation "io.netty:netty-transport:${nettyCompileVersion}"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = javaRelease }
+test { useJUnitPlatform() }
+
+shadowJar {
+    archiveClassifier = ''; mergeServiceFiles()
+    relocate 'com.google.gson', 'ddsmanager.lib.gson'
+}
+
+tasks.register('verifyDistribution') {
+    dependsOn shadowJar
+    doLast {
+        def zip = new java.util.zip.ZipFile(shadowJar.archiveFile.get().asFile)
+        try {
+            def metadata = zip.getEntry('velocity-plugin.json'); if (metadata == null) throw new GradleException('Missing velocity-plugin.json')
+            def text = zip.getInputStream(metadata).getText('UTF-8'); if (!text.contains('dds-manager')) throw new GradleException('DDS Manager metadata missing')
+            if (zip.getEntry('ddsmanager/protocol/VelocityProtocolBridge.class') == null) throw new GradleException('Lightweight protocol bridge missing')
+            if (zip.entries().any { it.name.startsWith('com/github/retrooper/packetevents/') || it.name.startsWith('io/github/retrooper/packetevents/') })
+                throw new GradleException('PacketEvents must not be embedded')
+            if (zip.entries().any { it.name.startsWith('io/netty/') }) throw new GradleException('Velocity-provided Netty must not be embedded')
+            if (zip.entries().any { it.name.startsWith('ddsmanager/lib/minimessage/') || it.name.startsWith('net/kyori/adventure/text/minimessage/') })
+                throw new GradleException('MiniMessage must not be embedded; it is unsafe across Velocity plugin classloaders')
+        } finally { zip.close() }
+    }
+}
+
+jar { archiveClassifier = 'plain' }
+build.dependsOn shadowJar, verifyDistribution
