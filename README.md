@@ -1,5 +1,7 @@
 # DDS Manager
 
+**中文** | [English](README_en_us.md)
+
 面向 Java 正版 Velocity 群组服的管理插件。
 
 ## 功能
