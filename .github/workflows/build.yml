@@ -66,6 +66,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(sed -n 's/^version=//p' gradle.properties)"
+          test -n "$VERSION"
+          case "$VERSION" in *-SNAPSHOT) echo "Snapshot versions cannot be released"; exit 1;; esac
           TAG="v$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -75,6 +77,18 @@ jobs:
       - name: Build release jar
         if: steps.version.outputs.exists != 'true'
         run: ./gradlew clean shadowJar verifyDistribution --stacktrace
+      - name: Prepare release assets
+        if: steps.version.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' ! -name '*-sources.jar' -print -quit)"
+          test -n "$JAR"
+          cp "$JAR" "dist/DDS-Manager-$VERSION.jar"
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/
+          sha256sum "dist/DDS-Manager-$VERSION.jar" > "dist/DDS-Manager-$VERSION.jar.sha256"
       - name: Publish release
         if: steps.version.outputs.exists != 'true'
         shell: bash
@@ -84,9 +98,6 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
-          JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' ! -name '*-sources.jar' -print -quit)"
-          test -n "$JAR"
-          cp "$JAR" "DDS-Manager-$VERSION.jar"
           git tag "$TAG" "$GITHUB_SHA"
           git push origin "$TAG"
-          gh release create "$TAG" "DDS-Manager-$VERSION.jar" --verify-tag --title "DDS Manager $VERSION" --notes $'- 轻量协议层支持 Minecraft 1.14.4–26.x 与 Velocity 3.6–4.2。\n- 修复同服维度刷新和跨服 Tab 显示，保留真实 Ping。\n- 为 Xaero/VoxelMap 提供持久化世界标识。\n- 收紧运行时生命周期、配置写回与默认日志输出。'
+          gh release create "$TAG" dist/* --verify-tag --title "DDS Manager $VERSION" --notes $'- 移除对 Velocity 全局 server channel initializer 的替换，改为 PostLogin 后按玩家注入协议处理器。\n- 消除 DDS 触发的 “The server channel initializer has been replaced” 启动警告。\n- 保留首次 Join Game、同服 Respawn 维度更新、跨服 Tab 与真实 Ping 行为。\n- 发布包附带 SHA-256、LICENSE 与 THIRD_PARTY_NOTICES。'

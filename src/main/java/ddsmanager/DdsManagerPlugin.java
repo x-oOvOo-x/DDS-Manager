@@ -53,7 +53,7 @@ public final class DdsManagerPlugin {
         managementTasks = new ManagementTaskService(logger); confirmations = new ConfirmationService();
         chatBridge = new ChatBridgeService(proxy, sessions, this::config, presence, switcher); tabSync = new TabSyncService(proxy, this::config, presence, logger);
         minimap = new MinimapWorldSyncService(proxy, this::config, new MinimapWorldIdRegistry(dataDirectory, jsonStore, logger)); minimap.registerChannels();
-        protocol = new VelocityProtocolBridge(this); protocol.initialize();
+        protocol = new VelocityProtocolBridge(this);
         proxy.getEventManager().register(this, new ConnectionListener(this)); proxy.getEventManager().register(this, new ServerSwitchListener(this));
         proxy.getEventManager().register(this, new ChatListener(this)); proxy.getEventManager().register(this, new PluginMessageListener(this));
         CommandManager manager = proxy.getCommandManager(); manager.register(manager.metaBuilder("dds").plugin(this).build(), new DdsCommand(this));

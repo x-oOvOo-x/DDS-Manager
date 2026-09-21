@@ -5,7 +5,6 @@ import ddsmanager.DdsManagerPlugin;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,41 +13,21 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
-/** Lightweight PacketEvents-style frontend injection for DDS presence. */
+/** Lightweight per-player protocol injection for DDS presence. */
 public final class VelocityProtocolBridge implements AutoCloseable {
     private static final String WIRE_HANDLER = "dds-manager-protocol-wire", OBJECT_HANDLER = "dds-manager-protocol-object", ENCODER = "minecraft-encoder";
     private static final long DISPLAY_SETTLE_TTL_MS = 2_000L;
-    private static final Method INIT_CHANNEL = initChannelMethod();
     private final DdsManagerPlugin plugin;
     private final Set<UUID> unsupportedLogged = ConcurrentHashMap.newKeySet(), failureLogged = ConcurrentHashMap.newKeySet();
     private final Set<Channel> trackedChannels = ConcurrentHashMap.newKeySet();
-    private final AtomicBoolean initializerFailureLogged = new AtomicBoolean(), closed = new AtomicBoolean();
+    private final AtomicBoolean closed = new AtomicBoolean();
     private final ConcurrentHashMap<UUID, Long> settlingDisplays = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Channel, Player> channelPlayers = new ConcurrentHashMap<>();
-    private volatile Object initializerHolder; private volatile ChannelInitializer<Channel> originalInitializer, installedInitializer;
 
     public VelocityProtocolBridge(DdsManagerPlugin plugin) { this.plugin = plugin; }
 
-    /** Wraps Velocity's frontend ChannelInitializer, matching PacketEvents' reliable injection lifetime. */
-    public void initialize() {
-        if (closed.get()) return;
-        try {
-            Object manager = valueBySimpleName(plugin.proxy(), "ConnectionManager");
-            Object holder = valueBySimpleName(manager, "ServerChannelInitializerHolder");
-            if (!(holder instanceof Supplier<?> supplier)) throw new IllegalStateException("Velocity ServerChannelInitializerHolder unavailable");
-            Object current = supplier.get(); if (!(current instanceof ChannelInitializer<?> raw)) throw new IllegalStateException("Velocity frontend initializer unavailable");
-            @SuppressWarnings("unchecked") ChannelInitializer<Channel> original = (ChannelInitializer<Channel>) raw;
-            ChannelInitializer<Channel> wrapper = new FrontendInitializer(original); setInitializer(holder, wrapper);
-            initializerHolder = holder; originalInitializer = original; installedInitializer = wrapper;
-            plugin.logger().debug("DDS Presence frontend protocol initializer installed");
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            plugin.logger().warn("DDS Presence could not wrap Velocity frontend initializer; per-player injection fallback remains active", e);
-        }
-    }
-
-    /** Binds an authenticated Player to its already-injected channel and repairs the taps if necessary. */
+    /** Injects after authentication. PostLogin fires before Velocity connects the player to the first backend. */
     public boolean attach(Player player) {
         if (closed.get() || !supported(player)) return false;
         Channel channel = null;
@@ -78,7 +57,9 @@ public final class VelocityProtocolBridge implements AutoCloseable {
 
     private void install(Channel channel) {
         if (closed.get()) return;
-        var pipeline = channel.pipeline(); removeNow(pipeline, WIRE_HANDLER); removeNow(pipeline, OBJECT_HANDLER);
+        var pipeline = channel.pipeline();
+        if (pipeline.get(WIRE_HANDLER) != null && pipeline.get(OBJECT_HANDLER) != null) return;
+        removeNow(pipeline, WIRE_HANDLER); removeNow(pipeline, OBJECT_HANDLER);
         if (pipeline.get(ENCODER) == null) throw new IllegalStateException("Velocity minecraft-encoder is unavailable");
         // Outbound traverses tail -> head: typed packet -> OBJECT -> minecraft-encoder -> WIRE ByteBuf.
         pipeline.addBefore(ENCODER, WIRE_HANDLER, new ClientWireTap());
@@ -97,10 +78,6 @@ public final class VelocityProtocolBridge implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) return;
         settlingDisplays.clear(); for (Player player : List.copyOf(plugin.proxy().getAllPlayers())) detach(player);
         channelPlayers.clear(); trackedChannels.clear();
-        Object holder = initializerHolder; ChannelInitializer<Channel> wrapper = installedInitializer, original = originalInitializer;
-        if (holder != null && wrapper != null && original != null) try {
-            if (holder instanceof Supplier<?> supplier && supplier.get() == wrapper) setInitializer(holder, original);
-        } catch (ReflectiveOperationException | RuntimeException ignored) {}
     }
 
     private PresenceChange capture(Player player, Object packet) {
@@ -151,6 +128,7 @@ public final class VelocityProtocolBridge implements AutoCloseable {
     private static Channel channel(Object owner) throws ReflectiveOperationException {
         Object connection = invoke(owner, "getConnection"); if (connection == null) return null; Object channel = invoke(connection, "getChannel"); return channel instanceof Channel c ? c : null;
     }
+
     private static Object invoke(Object target, String name) throws ReflectiveOperationException {
         if (target == null) return null;
         try { return target.getClass().getMethod(name).invoke(target); }
@@ -159,40 +137,12 @@ public final class VelocityProtocolBridge implements AutoCloseable {
             throw new NoSuchMethodException(target.getClass().getName() + "." + name + "()");
         }
     }
-    private static Object valueBySimpleName(Object target, String simpleName) throws ReflectiveOperationException {
-        if (target == null) return null;
-        for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) for (Field field : type.getDeclaredFields()) {
-            if (!field.getType().getSimpleName().equals(simpleName)) continue; field.setAccessible(true); Object value = field.get(target); if (value != null) return value;
-        }
-        return null;
-    }
-    private static void setInitializer(Object holder, ChannelInitializer<Channel> initializer) throws ReflectiveOperationException {
-        Method setter = null;
-        for (Method method : holder.getClass().getMethods()) if (method.getName().equals("set") && method.getParameterCount() == 1 && ChannelInitializer.class.isAssignableFrom(method.getParameterTypes()[0])) { setter = method; break; }
-        if (setter == null) throw new NoSuchMethodException(holder.getClass().getName() + ".set(ChannelInitializer)"); setter.invoke(holder, initializer);
-    }
-    private static Method initChannelMethod() {
-        try { Method method = ChannelInitializer.class.getDeclaredMethod("initChannel", Channel.class); method.setAccessible(true); return method; }
-        catch (ReflectiveOperationException e) { throw new ExceptionInInitializerError(e); }
-    }
+
     private static void run(Channel channel, Runnable task) { if (channel.eventLoop().inEventLoop()) task.run(); else channel.eventLoop().submit(task).syncUninterruptibly(); }
     private static void remove(Channel channel, String name) { Runnable task = () -> removeNow(channel.pipeline(), name); if (channel.eventLoop().inEventLoop()) task.run(); else channel.eventLoop().execute(task); }
     private static void removeNow(ChannelPipeline pipeline, String name) { if (pipeline.get(name) != null) pipeline.remove(name); }
 
     private record PresenceChange(String server) {}
-
-    private final class FrontendInitializer extends ChannelInitializer<Channel> {
-        private final ChannelInitializer<Channel> delegate; private FrontendInitializer(ChannelInitializer<Channel> delegate) { this.delegate = delegate; }
-        @Override protected void initChannel(Channel channel) throws Exception {
-            try { INIT_CHANNEL.invoke(delegate, channel); }
-            catch (ReflectiveOperationException e) { Throwable cause = e.getCause(); if (cause instanceof Exception ex) throw ex; throw e; }
-            try { install(channel); }
-            catch (RuntimeException | LinkageError e) {
-                if (initializerFailureLogged.compareAndSet(false, true))
-                    plugin.logger().warn("DDS Presence frontend tap was not ready during channel initialization; per-player fallback remains active", e);
-            }
-        }
-    }
 
     /** Primary path for Velocity-recognized packets. */
     private final class ClientObjectTap extends ChannelOutboundHandlerAdapter {
