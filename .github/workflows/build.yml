@@ -100,4 +100,4 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           git tag "$TAG" "$GITHUB_SHA"
           git push origin "$TAG"
-          gh release create "$TAG" dist/* --verify-tag --title "DDS Manager $VERSION" --notes $'- 移除对 Velocity 全局 server channel initializer 的替换，改为 PostLogin 后按玩家注入协议处理器。\n- 消除 DDS 触发的 “The server channel initializer has been replaced” 启动警告。\n- 保留首次 Join Game、同服 Respawn 维度更新、跨服 Tab 与真实 Ping 行为。\n- 发布包附带 SHA-256、LICENSE 与 THIRD_PARTY_NOTICES。'
+          gh release create "$TAG" dist/* --verify-tag --title "DDS Manager $VERSION" --notes $'- 修复目标子服务器连接失败后跨服 Tab 与 Presence 状态丢失。\n- 修复 MCDR/管理命令切换旁观或生存模式后 DDS Tab 展示失效。\n- PlayerInfo 改为按受影响 UUID 定向修复，并将切服窗口的全量对齐限制为一次，避免 O(N²) 刷新。\n- 保留 Minecraft 1.14.4–26.x、Velocity 3.6–4.2、同服维度刷新与真实 Ping 支持。'

@@ -17,10 +17,9 @@ final class VelocityWirePacketInspector {
         Object registry = readField(encoder, "registry"); if (registry == null) return Optional.empty();
         ByteBuf input = encoded.duplicate(); int packetId = readVarInt(input); PacketSpec spec = spec(registry, packetId);
         if (spec.role == Role.OTHER) return Optional.empty();
-        if (spec.role == Role.PLAYER_INFO) return Optional.of(new Inspection(spec.role, null));
         Object packet = createPacket(registry, packetId);
         if (packet == null && spec.type != null) packet = instantiate(spec.type);
-        if (packet == null) return Optional.empty();
+        if (packet == null) return spec.role == Role.PLAYER_INFO ? Optional.of(new Inspection(spec.role, null)) : Optional.empty();
         decode(packet, input, encoder, registry); return Optional.of(new Inspection(spec.role, packet));
     }
 

@@ -19,15 +19,28 @@ public final class NetworkPresenceService {
     private final Map<UUID, Expectation> expectedServers = new ConcurrentHashMap<>();
 
     public NetworkPresenceService(Supplier<PluginConfig> config) { this.config = config; }
-    public void expectServer(Player player, String server) { if (server != null && !server.isBlank()) expectedServers.put(player.getUniqueId(), new Expectation(server, System.currentTimeMillis() + EXPECTATION_TTL_MS)); }
+    public void expectServer(Player player, String server) {
+        if (server == null || server.isBlank()) return;
+        UUID uuid = player.getUniqueId();
+        expectedServers.put(uuid, new Expectation(server.trim(), System.currentTimeMillis() + EXPECTATION_TTL_MS, states.get(uuid)));
+    }
     public Optional<String> packetServer(Player player, boolean joinGame) { return resolvePacketServer(ChatBridgeService.serverName(player), currentExpectation(player.getUniqueId()).map(Expectation::server).orElse(null), joinGame); }
     static Optional<String> resolvePacketServer(String current, String expected, boolean joinGame) {
         String c = current == null ? "" : current.trim(), e = expected == null ? "" : expected.trim();
         if (joinGame && !e.isEmpty()) return Optional.of(e); if (!e.isEmpty() && !e.equalsIgnoreCase(c)) return Optional.empty(); return c.isEmpty() ? Optional.empty() : Optional.of(c);
     }
     public void connected(Player player, String server) {
-        if (server == null || server.isBlank()) return; String value = server.trim();
-        expectedServers.computeIfPresent(player.getUniqueId(), (ignored, e) -> e.server().equalsIgnoreCase(value) ? null : e);
+        if (server == null || server.isBlank()) return;
+        UUID uuid = player.getUniqueId(); String value = server.trim(); Expectation expected = expectedServers.remove(uuid);
+        if (expected != null && !expected.server().equalsIgnoreCase(value)) restorePreviousState(uuid, expected);
+    }
+    public void connectionFailed(Player player, String server) {
+        if (server == null || server.isBlank()) return;
+        UUID uuid = player.getUniqueId(); String value = server.trim();
+        expectedServers.computeIfPresent(uuid, (ignored, expected) -> {
+            if (!expected.server().equalsIgnoreCase(value)) return expected;
+            restorePreviousState(uuid, expected); return null;
+        });
     }
     public boolean update(Player player, String server, String... dimensionSignals) {
         if (server == null || server.isBlank()) return false;
@@ -67,12 +80,21 @@ public final class NetworkPresenceService {
         return s == null || value.isEmpty() || !s.server().equalsIgnoreCase(value) ? null : s;
     }
     private Optional<Expectation> currentExpectation(UUID uuid) {
-        Expectation e = expectedServers.get(uuid); if (e == null) return Optional.empty(); if (e.expiresAtEpochMs() >= System.currentTimeMillis()) return Optional.of(e); expectedServers.remove(uuid, e); return Optional.empty();
+        Expectation expected = expectedServers.get(uuid); if (expected == null) return Optional.empty();
+        if (expected.expiresAtEpochMs() >= System.currentTimeMillis()) return Optional.of(expected);
+        if (expectedServers.remove(uuid, expected)) restorePreviousState(uuid, expected);
+        return Optional.empty();
+    }
+    private void restorePreviousState(UUID uuid, Expectation expected) {
+        State current = states.get(uuid);
+        if (current == null || !current.server().equalsIgnoreCase(expected.server())) return;
+        State previous = expected.previousState();
+        if (previous == null) states.remove(uuid, current); else states.replace(uuid, current, previous);
     }
     static Dimension classify(String... signals) { return Dimension.detect(signals).dimension(); }
 
     private record State(String server, Dimension dimension, String source) {}
-    private record Expectation(String server, long expiresAtEpochMs) {}
+    private record Expectation(String server, long expiresAtEpochMs, State previousState) {}
     private record Detection(Dimension dimension, String source) {}
 
     enum Dimension {

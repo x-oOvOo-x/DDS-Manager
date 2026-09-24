@@ -3,6 +3,7 @@ package ddsmanager.listener;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.player.KickedFromServerEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
@@ -49,7 +50,15 @@ public final class ConnectionListener {
         if (profile == null) { event.setResult(ServerPreConnectEvent.ServerResult.denied()); return; }
         var target = event.getResult().getServer().orElse(event.getOriginalServer()); String targetName = target.getServerInfo().getName(); var decision = plugin.access().evaluate(player, profile, targetName);
         if (!decision.allowed()) { event.setResult(ServerPreConnectEvent.ServerResult.denied()); player.sendMessage(Messages.error("你没有访问服务器 " + targetName + " 的权限。")); return; }
-        plugin.presence().expectServer(player, targetName); plugin.protocol().attach(player);
+        plugin.presence().expectServer(player, targetName); plugin.protocol().settleTabViewer(player); plugin.protocol().attach(player);
+    }
+
+    @Subscribe
+    public void onKickedFromServer(KickedFromServerEvent event) {
+        if (!event.kickedDuringServerConnect()) return;
+        Player player = event.getPlayer(); String failed = event.getServer().getServerInfo().getName();
+        plugin.presence().connectionFailed(player, failed); plugin.protocol().settleTabViewer(player);
+        if (plugin.config().features.syncTabList && player.getCurrentServer().isPresent()) plugin.tabSync().refreshViewer(player);
     }
 
     @Subscribe

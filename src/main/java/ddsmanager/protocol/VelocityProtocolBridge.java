@@ -6,23 +6,20 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Lightweight per-player protocol injection for DDS presence. */
+/** Lightweight per-player protocol injection for DDS presence and Tab repair. */
 public final class VelocityProtocolBridge implements AutoCloseable {
     private static final String WIRE_HANDLER = "dds-manager-protocol-wire", OBJECT_HANDLER = "dds-manager-protocol-object", ENCODER = "minecraft-encoder";
-    private static final long DISPLAY_SETTLE_TTL_MS = 2_000L;
+    private static final long TAB_SETTLE_TTL_MS = 2_000L;
+    private static final Set<String> PRESENTATION_ACTIONS = Set.of("ADD_PLAYER", "REMOVE_PLAYER", "UPDATE_GAME_MODE", "UPDATE_LISTED", "UPDATE_DISPLAY_NAME");
     private final DdsManagerPlugin plugin;
     private final Set<UUID> unsupportedLogged = ConcurrentHashMap.newKeySet(), failureLogged = ConcurrentHashMap.newKeySet();
-    private final Set<Channel> trackedChannels = ConcurrentHashMap.newKeySet();
+    private final Set<Channel> trackedChannels = ConcurrentHashMap.newKeySet(), typedPlayerInfoWrites = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final ConcurrentHashMap<UUID, Long> settlingDisplays = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> settlingDisplays = new ConcurrentHashMap<>(), settlingViewers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Channel, Player> channelPlayers = new ConcurrentHashMap<>();
 
     public VelocityProtocolBridge(DdsManagerPlugin plugin) { this.plugin = plugin; }
@@ -42,10 +39,16 @@ public final class VelocityProtocolBridge implements AutoCloseable {
         }
     }
 
+    public void settleTabViewer(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (closed.get() || !plugin.config().features.syncTabList) { settlingViewers.remove(uuid); return; }
+        settlingViewers.put(uuid, System.currentTimeMillis() + TAB_SETTLE_TTL_MS);
+    }
+
     private void track(Channel channel, Player player) {
         channelPlayers.put(channel, player);
         if (trackedChannels.add(channel)) channel.closeFuture().addListener(ignored -> {
-            channelPlayers.remove(channel); trackedChannels.remove(channel);
+            channelPlayers.remove(channel); trackedChannels.remove(channel); typedPlayerInfoWrites.remove(channel);
         });
     }
 
@@ -68,16 +71,16 @@ public final class VelocityProtocolBridge implements AutoCloseable {
     }
 
     public void detach(Player player) {
-        UUID uuid = player.getUniqueId(); unsupportedLogged.remove(uuid); failureLogged.remove(uuid); settlingDisplays.remove(uuid);
+        UUID uuid = player.getUniqueId(); unsupportedLogged.remove(uuid); failureLogged.remove(uuid); settlingDisplays.remove(uuid); settlingViewers.remove(uuid);
         try {
-            Channel channel = channel(player); if (channel != null) { channelPlayers.remove(channel, player); trackedChannels.remove(channel); remove(channel, WIRE_HANDLER); remove(channel, OBJECT_HANDLER); }
+            Channel channel = channel(player); if (channel != null) { channelPlayers.remove(channel, player); trackedChannels.remove(channel); typedPlayerInfoWrites.remove(channel); remove(channel, WIRE_HANDLER); remove(channel, OBJECT_HANDLER); }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {}
     }
 
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        settlingDisplays.clear(); for (Player player : List.copyOf(plugin.proxy().getAllPlayers())) detach(player);
-        channelPlayers.clear(); trackedChannels.clear();
+        settlingDisplays.clear(); settlingViewers.clear(); for (Player player : List.copyOf(plugin.proxy().getAllPlayers())) detach(player);
+        channelPlayers.clear(); trackedChannels.clear(); typedPlayerInfoWrites.clear();
     }
 
     private PresenceChange capture(Player player, Object packet) {
@@ -89,13 +92,18 @@ public final class VelocityProtocolBridge implements AutoCloseable {
 
     private void publish(Player player, PresenceChange change) {
         if (change == null) return;
-        if (plugin.config().features.syncTabList) settlingDisplays.put(player.getUniqueId(), System.currentTimeMillis() + DISPLAY_SETTLE_TTL_MS);
+        if (plugin.config().features.syncTabList) settlingDisplays.put(player.getUniqueId(), System.currentTimeMillis() + TAB_SETTLE_TTL_MS);
         plugin.logger().debug("DDS Presence: {} @ {} -> {}", player.getUsername(), change.server(), plugin.presence().diagnostic(player, change.server()));
     }
 
     static Set<UUID> activeSettlingIds(Map<UUID, Long> deadlines, long now) {
         deadlines.entrySet().removeIf(entry -> entry.getValue() < now);
         return Set.copyOf(deadlines.keySet());
+    }
+
+    static boolean consumeSettling(Map<UUID, Long> deadlines, UUID uuid, long now) {
+        Long deadline = deadlines.remove(uuid);
+        return deadline != null && deadline >= now;
     }
 
     private List<Player> settlingPlayers() {
@@ -106,9 +114,32 @@ public final class VelocityProtocolBridge implements AutoCloseable {
         return players;
     }
 
-    private void refreshDisplays(Player player, PresenceChange change, boolean playerInfo) {
-        if (change != null && plugin.config().features.syncTabList) refreshDisplay(player);
-        if (playerInfo) settlingPlayers().forEach(this::refreshDisplay);
+    private void refreshDisplays(Player player, PresenceChange change, PlayerInfoChange playerInfo) {
+        if (!plugin.config().features.syncTabList) { settlingDisplays.clear(); settlingViewers.clear(); return; }
+        if (change != null) refreshDisplay(player);
+        if (playerInfo == null) return;
+
+        UUID viewer = player.getUniqueId(); boolean settle = consumeSettling(settlingViewers, viewer, System.currentTimeMillis());
+        if (playerInfo.localGameModeChange(viewer)) reapplyViewer(player);
+        else if (playerInfo.conservative() || settle) refreshViewer(player);
+        else if (playerInfo.affectsPresentation() && !playerInfo.subjects().isEmpty()) repairViewerSubjects(player, playerInfo.subjects());
+
+        settlingPlayers().forEach(this::refreshDisplay);
+    }
+
+    private void refreshViewer(Player player) {
+        try { plugin.tabSync().refreshViewer(player); }
+        catch (RuntimeException e) { plugin.logger().debug("Unable to settle DDS tab viewer {}", player.getUsername(), e); }
+    }
+
+    private void reapplyViewer(Player player) {
+        try { plugin.tabSync().reapplyViewer(player); }
+        catch (RuntimeException e) { plugin.logger().debug("Unable to reapply DDS tab viewer {}", player.getUsername(), e); }
+    }
+
+    private void repairViewerSubjects(Player player, Collection<UUID> subjects) {
+        try { plugin.tabSync().refreshViewerSubjects(player, subjects); }
+        catch (RuntimeException e) { plugin.logger().debug("Unable to repair DDS tab entries for {}", player.getUsername(), e); }
     }
 
     private void refreshDisplay(Player player) {
@@ -116,9 +147,50 @@ public final class VelocityProtocolBridge implements AutoCloseable {
         catch (RuntimeException e) { plugin.logger().debug("Unable to settle DDS tab display for {}", player.getUsername(), e); }
     }
 
-    static boolean mayReplaceTabDisplay(Object packet) {
-        if (packet == null) return false;
-        return switch (packet.getClass().getSimpleName()) { case "LegacyPlayerListItemPacket", "UpsertPlayerInfoPacket", "RemovePlayerInfoPacket" -> true; default -> false; };
+    static boolean mayReplaceTabDisplay(Object packet) { return playerInfoChange(packet) != null; }
+
+    static PlayerInfoChange playerInfoChange(Object packet) {
+        if (packet == null) return null;
+        try {
+            return switch (packet.getClass().getSimpleName()) {
+                case "RemovePlayerInfoPacket" -> new PlayerInfoChange(subjectIds(packet, "getProfilesToRemove", null), Set.of("REMOVE_PLAYER"), false);
+                case "LegacyPlayerListItemPacket" -> {
+                    Object rawAction = invoke(packet, "getAction");
+                    int action = rawAction instanceof Number number ? number.intValue() : -1;
+                    String name = switch (action) {
+                        case 0 -> "ADD_PLAYER";
+                        case 1 -> "UPDATE_GAME_MODE";
+                        case 2 -> "UPDATE_LATENCY";
+                        case 3 -> "UPDATE_DISPLAY_NAME";
+                        case 4 -> "REMOVE_PLAYER";
+                        default -> "UNKNOWN";
+                    };
+                    yield new PlayerInfoChange(subjectIds(packet, "getItems", "getUuid"), Set.of(name), action < 0 || action > 4);
+                }
+                case "UpsertPlayerInfoPacket" -> {
+                    Set<String> actions = new LinkedHashSet<>();
+                    Object raw = invoke(packet, "getActions");
+                    if (raw instanceof Iterable<?> values) for (Object action : values) actions.add(String.valueOf(action));
+                    yield new PlayerInfoChange(subjectIds(packet, "getEntries", "getProfileId"), Set.copyOf(actions), false);
+                }
+                default -> null;
+            };
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return switch (packet.getClass().getSimpleName()) {
+                case "RemovePlayerInfoPacket", "LegacyPlayerListItemPacket", "UpsertPlayerInfoPacket" -> PlayerInfoChange.unknown();
+                default -> null;
+            };
+        }
+    }
+
+    private static Set<UUID> subjectIds(Object packet, String collectionGetter, String idGetter) throws ReflectiveOperationException {
+        Object raw = invoke(packet, collectionGetter); if (!(raw instanceof Iterable<?> values)) return Set.of();
+        Set<UUID> ids = new LinkedHashSet<>();
+        for (Object value : values) {
+            Object id = idGetter == null ? value : invoke(value, idGetter);
+            if (id instanceof UUID uuid) ids.add(uuid);
+        }
+        return Set.copyOf(ids);
     }
 
     private void logFailure(Player player, String stage, Throwable error) {
@@ -144,14 +216,24 @@ public final class VelocityProtocolBridge implements AutoCloseable {
 
     private record PresenceChange(String server) {}
 
+    record PlayerInfoChange(Set<UUID> subjects, Set<String> actions, boolean conservative) {
+        private static PlayerInfoChange unknown() { return new PlayerInfoChange(Set.of(), Set.of("UNKNOWN"), true); }
+        boolean affectsPresentation() { return actions.stream().anyMatch(PRESENTATION_ACTIONS::contains); }
+        boolean localGameModeChange(UUID viewer) { return subjects.contains(viewer) && actions.contains("UPDATE_GAME_MODE"); }
+    }
+
     /** Primary path for Velocity-recognized packets. */
     private final class ClientObjectTap extends ChannelOutboundHandlerAdapter {
         private boolean refreshingDisplay;
         @Override public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
             Player player = channelPlayers.get(ctx.channel()); if (player == null) { ctx.write(msg, promise); return; }
-            PresenceChange change = msg instanceof ByteBuf ? null : capture(player, msg); boolean playerInfo = mayReplaceTabDisplay(msg);
-            ctx.write(msg, promise); publish(player, change);
-            if (!refreshingDisplay && (playerInfo || change != null && plugin.config().features.syncTabList)) { refreshingDisplay = true; try { refreshDisplays(player, change, playerInfo); } finally { refreshingDisplay = false; } }
+            PresenceChange change = msg instanceof ByteBuf ? null : capture(player, msg); PlayerInfoChange playerInfo = msg instanceof ByteBuf ? null : playerInfoChange(msg);
+            if (playerInfo != null) typedPlayerInfoWrites.add(ctx.channel());
+            try { ctx.write(msg, promise); } finally { if (playerInfo != null) typedPlayerInfoWrites.remove(ctx.channel()); }
+            publish(player, change);
+            if (!refreshingDisplay && (playerInfo != null || change != null && plugin.config().features.syncTabList)) {
+                refreshingDisplay = true; try { refreshDisplays(player, change, playerInfo); } finally { refreshingDisplay = false; }
+            }
         }
     }
 
@@ -160,13 +242,19 @@ public final class VelocityProtocolBridge implements AutoCloseable {
         private final VelocityWirePacketInspector inspector = new VelocityWirePacketInspector(); private boolean refreshingDisplay;
         @Override public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
             Player player = channelPlayers.get(ctx.channel()); if (player == null) { ctx.write(msg, promise); return; }
-            PresenceChange change = null; boolean playerInfo = false;
-            if (msg instanceof ByteBuf encoded) try {
+            PresenceChange change = null; PlayerInfoChange playerInfo = null;
+            if (msg instanceof ByteBuf encoded && !typedPlayerInfoWrites.contains(ctx.channel())) try {
                 var inspection = inspector.inspect(ctx.pipeline().get(ENCODER), encoded).orElse(null);
-                if (inspection != null) { playerInfo = inspection.role() == VelocityWirePacketInspector.Role.PLAYER_INFO; if (inspection.packet() != null) change = capture(player, inspection.packet()); }
+                if (inspection != null) {
+                    if (inspection.role() == VelocityWirePacketInspector.Role.PLAYER_INFO)
+                        playerInfo = inspection.packet() == null ? PlayerInfoChange.unknown() : playerInfoChange(inspection.packet());
+                    else if (inspection.packet() != null) change = capture(player, inspection.packet());
+                }
             } catch (ReflectiveOperationException | RuntimeException | LinkageError e) { logFailure(player, "wire-decode", e); }
             ctx.write(msg, promise); publish(player, change);
-            if (!refreshingDisplay && (playerInfo || change != null && plugin.config().features.syncTabList)) { refreshingDisplay = true; try { refreshDisplays(player, change, playerInfo); } finally { refreshingDisplay = false; } }
+            if (!refreshingDisplay && (playerInfo != null || change != null && plugin.config().features.syncTabList)) {
+                refreshingDisplay = true; try { refreshDisplays(player, change, playerInfo); } finally { refreshingDisplay = false; }
+            }
         }
     }
 }

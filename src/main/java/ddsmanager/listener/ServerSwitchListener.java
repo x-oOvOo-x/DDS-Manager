@@ -18,7 +18,7 @@ public final class ServerSwitchListener {
         String current = connection == null ? "" : connection.getServerInfo().getName();
         String previous = event.getPreviousServer() == null ? "" : event.getPreviousServer().getServerInfo().getName();
         Component previousBadge = previous.isBlank() ? Component.empty() : plugin.presence().switchBadge(previous, plugin.switcher().command(previous), NamedTextColor.GRAY);
-        plugin.presence().connected(player, current);
+        plugin.presence().connected(player, current); plugin.protocol().settleTabViewer(player);
         if (plugin.config().features.syncTabList) { plugin.tabSync().refreshViewer(player); plugin.tabSync().refreshSubject(player); }
         var profile = plugin.sessions().get(player).orElse(null); if (profile == null) return;
 
