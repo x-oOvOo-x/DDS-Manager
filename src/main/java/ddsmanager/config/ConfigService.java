@@ -27,10 +27,10 @@ public final class ConfigService {
     private PluginConfig read(boolean initialize) throws IOException {
         try {
             PluginConfig config = store.read(path, PluginConfig.class, ConfigService::stripComments).orElseGet(() -> initialize ? new PluginConfig() : null);
-            if (config == null) throw new IOException("配置文件不存在，保留当前配置");
+            if (config == null) throw new IOException("Config file not found; keeping current configuration");
             List<String> warnings = validate(config); config.normalize(); if (initialize) save(config);
             validationWarnings = List.copyOf(warnings); warnings.forEach(w -> logger.warn("DDS Manager config: {}", w)); return config;
-        } catch (RuntimeException e) { throw new IOException("配置无效: " + errorDetail(e), e); }
+        } catch (RuntimeException e) { throw new IOException("Invalid configuration: " + errorDetail(e), e); }
     }
     public void save(PluginConfig config) throws IOException { store.writeText(path, render(config)); }
     public List<String> validationWarnings() { return validationWarnings; }
@@ -50,38 +50,44 @@ public final class ConfigService {
 
     static String render(PluginConfig c) {
         StringBuilder s = new StringBuilder("{\n");
-        comment(s, 1, "配置格式版本，由 DDS 自动维护，请勿手动降低"); value(s, 1, "schemaVersion", c.schemaVersion, true);
-        comment(s, 1, "功能总开关"); line(s, 1, "\"features\": {");
-        comment(s, 2, "是否启用 DDS 统一白名单"); value(s, 2, "whitelist", c.features.whitelist, true);
-        comment(s, 2, "是否记住玩家最后所在服务器并在下次连接时优先返回"); value(s, 2, "rememberLastServer", c.features.rememberLastServer, true);
-        comment(s, 2, "是否启用 DDS Local/Global 跨服聊天桥接"); value(s, 2, "bridgeChat", c.features.bridgeChat, true);
-        comment(s, 2, "是否记录聊天日志"); value(s, 2, "chatLog", c.features.chatLog, true);
-        comment(s, 2, "是否同步跨服 Tab 列表与 Presence 信息"); value(s, 2, "syncTabList", c.features.syncTabList, true);
-        comment(s, 2, "是否广播玩家进服、离服和切服提示"); value(s, 2, "bridgeJoinLeave", c.features.bridgeJoinLeave, true);
-        comment(s, 2, "是否同步 Xaero/VoxelMap 使用的世界标识"); value(s, 2, "minimapWorldSync", c.features.minimapWorldSync, true);
-        comment(s, 2, "是否允许通过 Velocity 权限节点授予服务器访问权限"); value(s, 2, "permissionBasedAccess", c.features.permissionBasedAccess, false); line(s, 1, "},");
+        comment(s, 1, "Schema version, managed by DDS; do not decrease manually"); value(s, 1, "schemaVersion", c.schemaVersion, true);
+        comment(s, 1, "Feature switches"); line(s, 1, "\"features\": {");
+        comment(s, 2, "Enable unified DDS whitelist"); value(s, 2, "whitelist", c.features.whitelist, true);
+        comment(s, 2, "Remember players' last server and try it when they reconnect"); value(s, 2, "rememberLastServer", c.features.rememberLastServer, true);
+        comment(s, 2, "Bridge local/global chat across servers"); value(s, 2, "bridgeChat", c.features.bridgeChat, true);
+        comment(s, 2, "Write chat logs"); value(s, 2, "chatLog", c.features.chatLog, true);
+        comment(s, 2, "Synchronize cross-server Tab list and presence"); value(s, 2, "syncTabList", c.features.syncTabList, true);
+        comment(s, 2, "Broadcast join, leave and server-switch notices"); value(s, 2, "bridgeJoinLeave", c.features.bridgeJoinLeave, true);
+        comment(s, 2, "Synchronize world identifiers for Xaero/VoxelMap"); value(s, 2, "minimapWorldSync", c.features.minimapWorldSync, true);
+        comment(s, 2, "Allow Velocity permission nodes to grant server access"); value(s, 2, "permissionBasedAccess", c.features.permissionBasedAccess, false); line(s, 1, "},");
 
-        comment(s, 1, "连接路由设置"); line(s, 1, "\"routing\": {");
-        comment(s, 2, "是否尊重 Velocity 首次选出的初始服务器"); value(s, 2, "respectInitialServer", c.routing.respectInitialServer, true);
-        comment(s, 2, "无可用目标时使用的回退服务器名；留空表示不指定"); value(s, 2, "fallbackServer", c.routing.fallbackServer, false); line(s, 1, "},");
+        comment(s, 1, "Message locale settings: prefer the player locale, otherwise use defaults"); line(s, 1, "\"language\": {");
+        value(s, 2, "defaultLocale", c.language.defaultLocale, true);
+        value(s, 2, "fallbackLocale", c.language.fallbackLocale, true);
+        value(s, 2, "consoleLocale", c.language.consoleLocale, true);
+        value(s, 2, "detectClientLanguage", c.language.detectClientLanguage, false); line(s, 1, "},");
 
-        comment(s, 1, "聊天设置；同服原生聊天保持子服原样，DDS 不追加服务器标签"); line(s, 1, "\"chat\": {");
-        comment(s, 2, "新玩家默认聊天频道，可选 local 或 global"); value(s, 2, "defaultChannel", c.chat.defaultChannel, false); line(s, 1, "},");
+        comment(s, 1, "Connection routing"); line(s, 1, "\"routing\": {");
+        comment(s, 2, "Respect the initial server selected by Velocity"); value(s, 2, "respectInitialServer", c.routing.respectInitialServer, true);
+        comment(s, 2, "Fallback server when no destination is available; blank means none"); value(s, 2, "fallbackServer", c.routing.fallbackServer, false); line(s, 1, "},");
 
-        comment(s, 1, "跨服显示与服务器标签设置"); line(s, 1, "\"presence\": {");
-        comment(s, 2, "是否显示玩家切换服务器的提示"); value(s, 2, "showServerSwitches", c.presence.showServerSwitches, true);
-        comment(s, 2, "是否在 Tab 玩家名中显示服务器标签"); value(s, 2, "showServerInTabName", c.presence.showServerInTabName, true);
-        comment(s, 2, "是否在 Tab 玩家名中显示维度状态符号"); value(s, 2, "showDimensionInTabName", c.presence.showDimensionInTabName, true);
-        comment(s, 2, "服务器名到简写的映射；未配置完整标签时显示为 [简写]"); stringMap(s, 2, "serverPrefixes", c.presence.serverPrefixes, "服务器 %s 的简写", true);
-        comment(s, 2, "服务器名到完整标签模板的映射；支持 DDS 受限 MiniMessage 风格，留空则使用 serverPrefixes"); stringMap(s, 2, "serverLabels", c.presence.serverLabels, "服务器 %s 的完整标签模板", true);
-        comment(s, 2, "Tab 中统一使用的维度符号，颜色由主世界/下界/末地状态决定"); value(s, 2, "dimensionSymbol", c.presence.dimensionSymbol, false); line(s, 1, "},");
+        comment(s, 1, "Chat settings; native same-server chat is unchanged by DDS"); line(s, 1, "\"chat\": {");
+        comment(s, 2, "Default chat channel for new players: local or global"); value(s, 2, "defaultChannel", c.chat.defaultChannel, false); line(s, 1, "},");
 
-        comment(s, 1, "数据持久化设置"); line(s, 1, "\"persistence\": {");
-        comment(s, 2, "脏数据定期写盘间隔，单位为秒，最小值 1"); value(s, 2, "flushIntervalSeconds", c.persistence.flushIntervalSeconds, true);
-        comment(s, 2, "离线玩家缓存保留时间，单位为分钟，最小值 1"); value(s, 2, "cacheMinutes", c.persistence.cacheMinutes, false); line(s, 1, "},");
+        comment(s, 1, "Cross-server presence and server labels"); line(s, 1, "\"presence\": {");
+        comment(s, 2, "Show server-switch notices"); value(s, 2, "showServerSwitches", c.presence.showServerSwitches, true);
+        comment(s, 2, "Show server labels in Tab names"); value(s, 2, "showServerInTabName", c.presence.showServerInTabName, true);
+        comment(s, 2, "Show dimension symbols in Tab names"); value(s, 2, "showDimensionInTabName", c.presence.showDimensionInTabName, true);
+        comment(s, 2, "Map server names to short labels; shown as [prefix] if no full label is set"); stringMap(s, 2, "serverPrefixes", c.presence.serverPrefixes, "Short label for server %s", true);
+        comment(s, 2, "Full server label templates; supports restricted DDS MiniMessage formatting"); stringMap(s, 2, "serverLabels", c.presence.serverLabels, "Full label template for server %s", true);
+        comment(s, 2, "Dimension symbol used in Tab; its color depends on dimension"); value(s, 2, "dimensionSymbol", c.presence.dimensionSymbol, false); line(s, 1, "},");
 
-        comment(s, 1, "DDS 内置管理员的正版玩家 UUID 列表；管理员拥有全部管理权限并绕过 DDS 白名单"); stringList(s, 1, "administrators", c.administrators, "管理员 UUID", true);
-        comment(s, 1, "服务器组配置；键为组名，值为该组包含的 Velocity 服务器名"); groupMap(s, 1, "serverGroups", c.serverGroups, false);
+        comment(s, 1, "Persistence settings"); line(s, 1, "\"persistence\": {");
+        comment(s, 2, "Write-back interval in seconds, minimum 1"); value(s, 2, "flushIntervalSeconds", c.persistence.flushIntervalSeconds, true);
+        comment(s, 2, "Offline player cache time in minutes, minimum 1"); value(s, 2, "cacheMinutes", c.persistence.cacheMinutes, false); line(s, 1, "},");
+
+        comment(s, 1, "UUIDs of built-in administrators; they bypass DDS whitelist and have full management rights"); stringList(s, 1, "administrators", c.administrators, "Administrator UUID", true);
+        comment(s, 1, "Server groups: each group maps to Velocity server names"); groupMap(s, 1, "serverGroups", c.serverGroups, false);
         return s.append("}\n").toString();
     }
 
@@ -98,8 +104,8 @@ public final class ConfigService {
     private static void groupMap(StringBuilder s, int d, String key, Map<String, Set<String>> groups, boolean comma) {
         line(s, d, JSON.toJson(key) + ": {"); int gi = 0, gn = groups == null ? 0 : groups.size();
         if (groups != null) for (var e : groups.entrySet()) {
-            comment(s, d + 1, "服务器组 " + e.getKey()); line(s, d + 1, JSON.toJson(e.getKey()) + ": [");
-            int i = 0, n = e.getValue() == null ? 0 : e.getValue().size(); if (e.getValue() != null) for (String v : e.getValue()) { comment(s, d + 2, "该组包含服务器 " + v); line(s, d + 2, JSON.toJson(v) + (++i < n ? "," : "")); }
+            comment(s, d + 1, "Server group " + e.getKey()); line(s, d + 1, JSON.toJson(e.getKey()) + ": [");
+            int i = 0, n = e.getValue() == null ? 0 : e.getValue().size(); if (e.getValue() != null) for (String v : e.getValue()) { comment(s, d + 2, "Server included: " + v); line(s, d + 2, JSON.toJson(v) + (++i < n ? "," : "")); }
             line(s, d + 1, "]" + (++gi < gn ? "," : ""));
         }
         line(s, d, "}" + (comma ? "," : ""));
@@ -110,45 +116,46 @@ public final class ConfigService {
 
     private static List<String> validate(PluginConfig c) {
         List<String> w = new ArrayList<>();
-        if (c.schemaVersion != 2) w.add("$.schemaVersion: 仅支持 2，已升级");
-        if (c.features == null) w.add("$.features: 缺失或为 null，已恢复默认值");
-        if (c.routing == null) w.add("$.routing: 缺失或为 null，已恢复默认值");
-        if (c.chat == null) w.add("$.chat: 缺失或为 null，已恢复默认值");
-        else if (!"local".equalsIgnoreCase(c.chat.defaultChannel) && !"global".equalsIgnoreCase(c.chat.defaultChannel)) w.add("$.chat.defaultChannel: 只能是 local/global，已回退为 local");
-        if (c.presence == null) w.add("$.presence: 缺失或为 null，已恢复默认值"); else validatePresence(c.presence, w);
-        if (c.persistence == null) w.add("$.persistence: 缺失或为 null，已恢复默认值"); else {
-            if (c.persistence.flushIntervalSeconds < 1) w.add("$.persistence.flushIntervalSeconds: 必须 >= 1，已修正为 1");
-            if (c.persistence.cacheMinutes < 1) w.add("$.persistence.cacheMinutes: 必须 >= 1，已修正为 1");
+        if (c.schemaVersion != 2) w.add("$.schemaVersion: Only version 2 is supported; upgraded");
+        if (c.features == null) w.add("$.features: Missing or null; restored default");
+        if (c.language == null) w.add("$.language: missing, defaults restored");
+        if (c.routing == null) w.add("$.routing: Missing or null; restored default");
+        if (c.chat == null) w.add("$.chat: Missing or null; restored default");
+        else if (!"local".equalsIgnoreCase(c.chat.defaultChannel) && !"global".equalsIgnoreCase(c.chat.defaultChannel)) w.add("$.chat.defaultChannel: Must be local or global; switched to local");
+        if (c.presence == null) w.add("$.presence: Missing or null; restored default"); else validatePresence(c.presence, w);
+        if (c.persistence == null) w.add("$.persistence: Missing or null; restored default"); else {
+            if (c.persistence.flushIntervalSeconds < 1) w.add("$.persistence.flushIntervalSeconds: Must be >= 1; adjusted to 1");
+            if (c.persistence.cacheMinutes < 1) w.add("$.persistence.cacheMinutes: Must be >= 1; adjusted to 1");
         }
-        if (c.administrators == null) w.add("$.administrators: 缺失或为 null，已恢复为空列表"); else {
-            int i = 0; for (String admin : c.administrators) { if (!PluginConfig.isValidUuid(admin)) w.add("$.administrators[" + i + "]: 必须是正版玩家 UUID，该项会被忽略"); i++; }
+        if (c.administrators == null) w.add("$.administrators: Missing or null; restored an empty list"); else {
+            int i = 0; for (String admin : c.administrators) { if (!PluginConfig.isValidUuid(admin)) w.add("$.administrators[" + i + "]: Must be a valid UUID; entry ignored"); i++; }
         }
-        if (c.serverGroups == null) w.add("$.serverGroups: 缺失或为 null，已恢复为空对象"); else for (var e : c.serverGroups.entrySet()) {
+        if (c.serverGroups == null) w.add("$.serverGroups: Missing or null; restored empty object"); else for (var e : c.serverGroups.entrySet()) {
             String name = e.getKey(), base = "$.serverGroups." + (name == null ? "<null>" : name);
-            if (!PluginConfig.isValidGroupName(name)) w.add(base + ": 组名只能包含字母、数字、_、-、.，长度 1-32，该项会被忽略");
-            if (e.getValue() == null) w.add(base + ": 服务器列表为 null，已恢复为空列表");
-            else if (e.getValue().stream().anyMatch(v -> v == null || v.isBlank())) w.add(base + ": 含空服务器名，空值会被忽略");
+            if (!PluginConfig.isValidGroupName(name)) w.add(base + ": Group name must be 1-32 letters, digits or _, -, .; entry ignored");
+            if (e.getValue() == null) w.add(base + ": Server list null; reset to empty list");
+            else if (e.getValue().stream().anyMatch(v -> v == null || v.isBlank())) w.add(base + ": Contains blank server names; blank entries ignored");
         }
         return w;
     }
 
     private static void validatePresence(PluginConfig.Presence p, List<String> w) {
-        if (p.serverPrefixes == null) w.add("$.presence.serverPrefixes: 缺失或为 null，已恢复默认值"); else {
+        if (p.serverPrefixes == null) w.add("$.presence.serverPrefixes: Missing or null; restored default"); else {
             Set<String> prefixes = new HashSet<>();
             for (var e : p.serverPrefixes.entrySet()) {
                 String server = e.getKey(), prefix = e.getValue(), base = "$.presence.serverPrefixes." + (server == null ? "<null>" : server);
-                if (server == null || server.isBlank()) w.add(base + ": 服务器名不能为空，该项会被忽略");
-                if (!PluginConfig.isValidServerPrefix(prefix)) w.add(base + ": 前缀须为 1-12 个非空白字符且不能包含 []，该项会被忽略");
-                else if (!prefixes.add(prefix.trim().toLowerCase(Locale.ROOT))) w.add(base + ": 前缀 " + prefix.trim() + " 与其他服务器重复，Hover 会显示真实服务器名");
+                if (server == null || server.isBlank()) w.add(base + ": Server name cannot be blank; entry ignored");
+                if (!PluginConfig.isValidServerPrefix(prefix)) w.add(base + ": Prefix must be 1-12 non-whitespace characters without brackets; entry ignored");
+                else if (!prefixes.add(prefix.trim().toLowerCase(Locale.ROOT))) w.add(base + ": Prefix " + prefix.trim() + " duplicates another prefix; hover will show the actual server name");
             }
         }
-        if (p.serverLabels == null) w.add("$.presence.serverLabels: 缺失或为 null，已恢复为空对象并沿用 [serverPrefix]"); else for (var e : p.serverLabels.entrySet()) {
+        if (p.serverLabels == null) w.add("$.presence.serverLabels: Missing or null; restored empty object and using [serverPrefix]"); else for (var e : p.serverLabels.entrySet()) {
             String server = e.getKey(), label = e.getValue(), base = "$.presence.serverLabels." + (server == null ? "<null>" : server);
-            if (server == null || server.isBlank()) w.add(base + ": 服务器名不能为空，该项会被忽略");
-            if (!PluginConfig.isValidServerLabelTemplate(label)) w.add(base + ": 标签须为 1-128 个字符且不能包含控制字符，该项会被忽略");
-            else if (!ServerLabelFormatter.isValid(label)) w.add(base + ": MiniMessage 样式无效，将按纯文本显示");
+            if (server == null || server.isBlank()) w.add(base + ": Server name cannot be blank; entry ignored");
+            if (!PluginConfig.isValidServerLabelTemplate(label)) w.add(base + ": Label must contain 1-128 characters without control characters; entry ignored");
+            else if (!ServerLabelFormatter.isValid(label)) w.add(base + ": Invalid MiniMessage style; plain text will be used");
         }
-        if (!PluginConfig.isValidDimensionSymbol(p.dimensionSymbol)) w.add("$.presence.dimensionSymbol: 维度符号须为 1-4 个可见字符，已恢复为 ⁑");
+        if (!PluginConfig.isValidDimensionSymbol(p.dimensionSymbol)) w.add("$.presence.dimensionSymbol: Dimension symbol must contain 1-4 visible characters; restored ⁑");
     }
 
     private static String errorDetail(Throwable error) {

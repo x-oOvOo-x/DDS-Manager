@@ -31,14 +31,14 @@ public final class UnifiedWhitelistService {
 
     public synchronized SyncResult synchronize(String defaultChannel) throws IOException {
         Document document = store.read(file, Document.class)
-                .orElseThrow(() -> new IOException("统一白名单文件不存在: " + file.getFileName()));
-        if (document.whitelist == null) throw new IOException("whitelist.json 缺少 whitelist 数组");
+                .orElseThrow(() -> new IOException("Unified whitelist file missing: " + file.getFileName()));
+        if (document.whitelist == null) throw new IOException("whitelist.json is missing its whitelist array");
 
         TreeMap<String, String> desired = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String raw : document.whitelist) {
             String username = raw == null ? "" : raw.trim();
             if (!PlayerRepository.isValidUsername(username))
-                throw new IOException("whitelist.json 包含无效 Java 玩家名: " + String.valueOf(raw));
+                throw new IOException("whitelist.json contains invalid Java username: " + String.valueOf(raw));
             desired.putIfAbsent(username, username);
         }
 
@@ -85,9 +85,9 @@ public final class UnifiedWhitelistService {
 
     public record SyncResult(boolean created, int added, int removed, int playersWritten, int failed) {
         public String summary() {
-            if (failed > 0) return "部分失败（新增 " + added + "，移除 " + removed + "，失败 " + failed + "）";
-            if (created) return "已创建并写入 " + playersWritten + " 名玩家";
-            return "已同步（新增 " + added + "，移除 " + removed + "，共 " + playersWritten + " 名）";
+            if (failed > 0) return "Partially failed (added " + added + "; removed " + removed + "; failed " + failed + ")";
+            if (created) return "Created and wrote " + playersWritten + " players";
+            return "Synced (added " + added + "; removed " + removed + "; total " + playersWritten + " players)";
         }
     }
 

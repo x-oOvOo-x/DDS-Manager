@@ -31,7 +31,7 @@ public final class WhitelistTransferService {
 
     public ImportResult importSnapshot(String requestedName, String defaultChannel) throws IOException {
         Path path = resolve(requestedName);
-        Snapshot snapshot = store.read(path, Snapshot.class).orElseThrow(() -> new IOException("导入文件不存在或为空: " + path.getFileName()));
+        Snapshot snapshot = store.read(path, Snapshot.class).orElseThrow(() -> new IOException("Import file missing or empty: " + path.getFileName()));
         List<Grant> grants = validate(snapshot); // Validate the whole document before changing any authorization.
         int changed = 0, added = 0, failed = 0;
         for (Grant grant : grants) {
@@ -48,25 +48,25 @@ public final class WhitelistTransferService {
     private static List<Grant> validate(Snapshot snapshot) throws IOException {
         List<Grant> source;
         if (snapshot.schemaVersion == 1) {
-            if (snapshot.players == null) throw new IOException("白名单快照缺少 players 字段");
+            if (snapshot.players == null) throw new IOException("Whitelist snapshot missing players field");
             source = snapshot.players.entrySet().stream().map(e -> new Grant("", e.getKey(), e.getValue())).toList();
         } else if (snapshot.schemaVersion == 2) {
-            if (snapshot.profiles == null) throw new IOException("白名单快照缺少 profiles 数组");
+            if (snapshot.profiles == null) throw new IOException("Whitelist snapshot missing profiles array");
             source = snapshot.profiles;
-        } else throw new IOException("不支持的白名单快照版本: " + snapshot.schemaVersion);
+        } else throw new IOException("Unsupported whitelist snapshot version: " + snapshot.schemaVersion);
         List<Grant> result = new ArrayList<>(); Set<String> identities = new HashSet<>();
         for (Grant grant : source) {
-            if (grant == null || !PlayerRepository.isValidUsername(grant.username())) throw new IOException("白名单快照包含无效玩家名");
-            if (grant.uuid() == null) throw new IOException("白名单快照缺少 UUID，pending 请使用空字符串");
+            if (grant == null || !PlayerRepository.isValidUsername(grant.username())) throw new IOException("Whitelist snapshot contains an invalid username");
+            if (grant.uuid() == null) throw new IOException("Whitelist snapshot missing UUID; use an empty string for pending");
             String uuid = grant.uuid().trim();
-            if (!uuid.isEmpty()) uuid = PlayerRepository.parseUuid(uuid).orElseThrow(() -> new IOException("无效 UUID: " + grant.uuid())).toString();
+            if (!uuid.isEmpty()) uuid = PlayerRepository.parseUuid(uuid).orElseThrow(() -> new IOException("Invalid UUID: " + grant.uuid())).toString();
             String identity = uuid.isEmpty() ? "pending:" + grant.username().toLowerCase(Locale.ROOT) : uuid;
-            if (!identities.add(identity)) throw new IOException("白名单快照包含重复身份: " + identity);
-            if (grant.scopes() == null) throw new IOException("白名单快照缺少 scopes: " + grant.username());
+            if (!identities.add(identity)) throw new IOException("Whitelist snapshot contains duplicate identity: " + identity);
+            if (grant.scopes() == null) throw new IOException("Whitelist snapshot missing scopes: " + grant.username());
             Set<String> scopes = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (String scope : grant.scopes()) {
                 String normalized = normalizeScope(scope);
-                if (normalized == null) throw new IOException("无效授权: " + grant.username());
+                if (normalized == null) throw new IOException("Invalid grant: " + grant.username());
                 scopes.add(normalized);
             }
             result.add(new Grant(uuid, grant.username(), scopes));
@@ -88,7 +88,7 @@ public final class WhitelistTransferService {
     private Path resolve(String requestedName) throws IOException {
         String name = requestedName == null || requestedName.isBlank() ? "whitelist.json" : requestedName.trim();
         if (!name.toLowerCase(Locale.ROOT).endsWith(".json")) name += ".json";
-        if (!name.matches(FILE_PATTERN)) throw new IOException("文件名只能包含字母、数字、_、-、.，长度 1-64");
+        if (!name.matches(FILE_PATTERN)) throw new IOException("Filename may contain letters, digits, _, -, . (1-64 characters)");
         Files.createDirectories(dir); return dir.resolve(name);
     }
 

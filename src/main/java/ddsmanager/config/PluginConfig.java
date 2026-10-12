@@ -7,14 +7,14 @@ public final class PluginConfig {
     private static final String GROUP_NAME_PATTERN = "[A-Za-z0-9_.-]{1,32}";
     public int schemaVersion = 2;
     public Features features = new Features(); public Routing routing = new Routing(); public Chat chat = new Chat();
-    public Presence presence = new Presence(); public Persistence persistence = new Persistence();
+    public Presence presence = new Presence(); public Persistence persistence = new Persistence(); public Language language = new Language();
     public Set<String> administrators = new ConcurrentSkipListSet<>(String.CASE_INSENSITIVE_ORDER);
     public Map<String, Set<String>> serverGroups = new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
 
     public void normalize() {
         schemaVersion = 2; features = features == null ? new Features() : features; routing = routing == null ? new Routing() : routing;
-        chat = chat == null ? new Chat() : chat; presence = presence == null ? new Presence() : presence; persistence = persistence == null ? new Persistence() : persistence;
-        routing.fallbackServer = safe(routing.fallbackServer); chat.defaultChannel = normalizeChannel(chat.defaultChannel); presence.normalize();
+        chat = chat == null ? new Chat() : chat; presence = presence == null ? new Presence() : presence; persistence = persistence == null ? new Persistence() : persistence; language = language == null ? new Language() : language;
+        routing.fallbackServer = safe(routing.fallbackServer); chat.defaultChannel = normalizeChannel(chat.defaultChannel); presence.normalize(); language.normalize();
         persistence.flushIntervalSeconds = Math.max(1, persistence.flushIntervalSeconds); persistence.cacheMinutes = Math.max(1, persistence.cacheMinutes);
         Set<String> admins = new ConcurrentSkipListSet<>(String.CASE_INSENSITIVE_ORDER);
         if (administrators != null) administrators.stream().filter(Objects::nonNull).map(String::trim).filter(PluginConfig::isValidUuid).map(v -> UUID.fromString(v).toString()).forEach(admins::add);
@@ -42,6 +42,21 @@ public final class PluginConfig {
     public static final class Features {
         public boolean whitelist = false, rememberLastServer = true, bridgeChat = true, chatLog = false, syncTabList = true,
                 bridgeJoinLeave = true, minimapWorldSync = true, permissionBasedAccess = true;
+    }
+    /** Locale settings for player-facing and console messages. */
+    public static final class Language {
+        public String defaultLocale = "en_US", fallbackLocale = "en_US", consoleLocale = "en_US";
+        public boolean detectClientLanguage = true;
+        private void normalize() {
+            defaultLocale = normalizeLocale(defaultLocale, "en_US");
+            fallbackLocale = normalizeLocale(fallbackLocale, "en_US");
+            consoleLocale = normalizeLocale(consoleLocale, "en_US");
+        }
+        private static String normalizeLocale(String code, String fallback) {
+            if (code == null || !code.matches("(?i)[a-z]{2,3}[_-][a-z]{2}")) return fallback;
+            String[] parts = code.replace('-', '_').split("_");
+            return parts[0].toLowerCase(Locale.ROOT) + "_" + parts[1].toUpperCase(Locale.ROOT);
+        }
     }
     public static final class Routing { public boolean respectInitialServer = true; public String fallbackServer = ""; }
     public static final class Chat { public String defaultChannel = "global"; }
