@@ -1,7 +1,5 @@
 # DDS Manager
 
-**中文** | [English](README_en_us.md)
-
 面向 Java 正版 Velocity 群组服的管理插件。
 
 ## 功能
@@ -106,7 +104,7 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 
 ## 管理员与权限
 
-首次启动生成 `plugins/dds-manager/config.json`，停止代理后填写正版 UUID：
+首次启动生成 `plugins/dds-manager/config.json`。配置文件中的每个设置都有中文和英文两行 `//` 注释（服务器前缀、标签、管理员 UUID 和服务器组条目同样如此）；更新插件并重启 Velocity 后，会保留配置值并重新生成中英双语注释。修改配置前建议备份原文件，`/dds reload` 只读取配置，不会主动重写注释。停止代理后填写正版 UUID：
 
 ```json
 {
@@ -132,6 +130,31 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 
 首次启动会根据现有全网授权生成该文件。修改后执行 `/dds reload` 并点击一次 `[Confirm]` 即可同步：新增名字会成为 pending，首次正版登录后绑定 UUID；移除名字只撤销全网 scope，玩家的分服/服务器组授权仍保留。文件格式或玩家名无效时整次同步被拒绝，不会按残缺内容部分删除。命令修改全网白名单和快照导入后也会自动回写此文件。
 
+## 多语言支持
+
+DDS Manager 内置九种语言：简体中文 `zh_CN`、繁体中文 `zh_TW`、英语 `en_US`、法语 `fr_FR`、日语 `ja_JP`、韩语 `ko_KR`、俄语 `ru_RU`、德语 `de_DE`、西班牙语（西班牙）`es_ES`。这些是 DDS Manager 自身消息的翻译，不会改变 Minecraft、Velocity 或其他插件的语言。
+
+`config.json` 中的 `language.detectClientLanguage` 默认启用，可按玩家客户端语言选择对应翻译；香港、澳门的中文客户端默认使用 `zh_TW`，新加坡中文客户端使用 `zh_CN`；无匹配语言时回退至配置的 `defaultLocale`，缺失消息键再回退至 `fallbackLocale` / 英语。控制台使用 `consoleLocale`。首次加载会将内置 JSON 文件复制到 `plugins/dds-manager/lang/`，可编辑翻译或添加符合 `<language>_<COUNTRY>.json` 规则的语言文件，再用 `dds reload` 热重载。
+
+启动时不再输出语言包加载列表的 INFO 消息；文件损坏、变量不匹配或加载失败时，仍保留相应警告日志。
+
+## 全网 UUID 封禁
+
+管理员可使用以下命令，权限 `dds-manager.ban.manage` 控制添加/解除封禁，`dds-manager.ban.view` 控制只读查询；`dds-manager.admin` 具备全部管理权限。
+
+```text
+/dds ban add <player|uuid> [reason...]
+/dds ban remove <player|uuid>
+/dds ban list [page]
+/dds ban check <player|uuid>
+```
+
+封禁以正版 UUID 为唯一身份标识，不因改名失效。已连接玩家封禁后立即断线，重新登录在 Velocity `LoginEvent` 阶段拦截；管理员和白名单放行不绕过封禁。未登录过的玩家可直接输入 UUID。增删操作采用已有的二次确认、权限复查和审计记录。
+
+数据写入 `plugins/dds-manager/bans.json`，与玩家资料和白名单分开持久化；损坏或无效文件导致**拒绝新登录**，不会自动以空封禁表覆盖原文件。修复后使用 `/dds reload` 重新加载。封禁命令的显示语言由客户端语言或控制台语言设置决定；登录尚未确定客户端语言时使用配置默认语言。
+
+**兼容边界**：CI 检查稳定版 Velocity 3.4.0、3.5.1、4.0.0、4.1.0、4.1.1、4.2.0；插件字节码目标为 Java 17。CI 通过不代表所有代理/客户端组合的实机运行已经验收。
+
 ## 白名单快照与可靠性
 
 `/dds whitelist export [file]` 生成 UUID 快照，历史同名账号分别保存；导入时已知 UUID 保持当前名字，不将旧账号授权转给同名新账号。未知名字仍作为 pending，兼容旧版按玩家名保存的快照。导入会先校验完整文件，无效 UUID、玩家名、授权或重复身份会拒绝整次导入；磁盘写入失败会单独报告，已成功保存的条目不会回滚。
@@ -146,6 +169,7 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 /dds player <player>
 /dds reload
 /dds alert <message...>
+/dds ban add|remove|list|check <player|uuid> [reason...]
 /dds whitelist status|on|off
 /dds whitelist add|remove all <player...>
 /dds whitelist add|remove server <server> <player...>
@@ -158,7 +182,7 @@ DDS 使用自己的受限样式解析器，语法为 MiniMessage 风格，但不
 /dds group list [group]
 ```
 
-危险操作统一使用单次确认：`[DDS] 危险操作：<操作说明> [Confirm]`；点击后直接执行并只输出最终结果。审计日志位于 `logs/audit-YYYY-MM-DD.log`。
+危险操作统一使用单次确认：游戏内玩家点击 `[Confirm]`；Velocity 后台控制台会显示可手动输入的 `dds confirm <token>`（不加 `/`），确认令牌有效期两分钟且只能使用一次。确认后仍会检查操作权限。审计日志位于 `logs/audit-YYYY-MM-DD.log`。
 
 ## 构建与许可
 

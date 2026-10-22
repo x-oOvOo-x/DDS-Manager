@@ -2,16 +2,12 @@ name: build
 
 on:
   push:
-    branches: ['main']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: public-build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   compatibility:
@@ -19,21 +15,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - velocity: '3.6.0-SNAPSHOT'
-            java: '21'
-            toolchain: '21'
-          - velocity: '4.0.0'
-            java: '25'
-            toolchain: '25'
-          - velocity: '4.1.0'
-            java: '25'
-            toolchain: '25'
-          - velocity: '4.1.1'
-            java: '25'
-            toolchain: '25'
-          - velocity: '4.2.0'
-            java: '25'
-            toolchain: '25'
+          - {velocity: '3.4.0', java: '21'}
+          - {velocity: '3.5.1', java: '21'}
+          - {velocity: '4.0.0', java: '25'}
+          - {velocity: '4.1.0', java: '25'}
+          - {velocity: '4.1.1', java: '25'}
+          - {velocity: '4.2.0', java: '25'}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,61 +30,5 @@ jobs:
           java-version: ${{ matrix.java }}
       - uses: gradle/actions/wrapper-validation@v4
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew clean build --stacktrace -PvelocityVersion=${{ matrix.velocity }} -PjavaToolchainVersion=${{ matrix.toolchain }} -PjavaRelease=21
-
-  publish:
-    needs: compatibility
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Resolve version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="$(sed -n 's/^version=//p' gradle.properties)"
-          test -n "$VERSION"
-          case "$VERSION" in *-SNAPSHOT) echo "Snapshot versions cannot be released"; exit 1;; esac
-          TAG="v$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if gh release view "$TAG" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Build release jar
-        if: steps.version.outputs.exists != 'true'
-        run: ./gradlew clean shadowJar verifyDistribution --stacktrace
-      - name: Prepare release assets
-        if: steps.version.outputs.exists != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          mkdir -p dist
-          JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-plain.jar' ! -name '*-sources.jar' -print -quit)"
-          test -n "$JAR"
-          cp "$JAR" "dist/DDS-Manager-$VERSION.jar"
-          cp LICENSE THIRD_PARTY_NOTICES.md dist/
-          sha256sum "dist/DDS-Manager-$VERSION.jar" > "dist/DDS-Manager-$VERSION.jar.sha256"
-      - name: Publish release
-        if: steps.version.outputs.exists != 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="${{ steps.version.outputs.tag }}"
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "$TAG"
-          gh release create "$TAG" dist/* --verify-tag --title "DDS Manager $VERSION" --notes $'- 修复目标子服务器连接失败后跨服 Tab 与 Presence 状态丢失。\n- 修复 MCDR/管理命令切换旁观或生存模式后 DDS Tab 展示失效。\n- PlayerInfo 改为按受影响 UUID 定向修复，并将切服窗口的全量对齐限制为一次，避免 O(N²) 刷新。\n- 保留 Minecraft 1.14.4–26.x、Velocity 3.6–4.2、同服维度刷新与真实 Ping 支持。'
+      - name: Verify (Java 17 target)
+        run: ./gradlew clean build --no-daemon --stacktrace -PvelocityVersion=${{ matrix.velocity }} -PjavaToolchainVersion=${{ matrix.java }} -PjavaRelease=17

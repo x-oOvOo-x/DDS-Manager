@@ -1,6 +1,8 @@
 package ddsmanager.listener;
 
+import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
@@ -17,15 +19,34 @@ public final class ConnectionListener {
     private final DdsManagerPlugin plugin;
     public ConnectionListener(DdsManagerPlugin plugin) { this.plugin = plugin; }
 
+    @Subscribe(priority = Short.MIN_VALUE)
+    public void onLogin(LoginEvent event) {
+        if (!event.getResult().isAllowed()) return;
+        Player player = event.getPlayer();
+        if (!player.isOnlineMode()) {
+            event.setResult(ResultedEvent.ComponentResult.denied(plugin.language().error(player, "ban.login-online-required")));
+            return;
+        }
+        if (!plugin.bans().healthy()) {
+            event.setResult(ResultedEvent.ComponentResult.denied(plugin.language().error(player, "ban.data-unavailable")));
+            return;
+        }
+        plugin.bans().find(player.getUniqueId()).ifPresent(ban ->
+                event.setResult(ResultedEvent.ComponentResult.denied(plugin.language().error(player, "ban.denied", "reason", ban.reason))));
+    }
+
     @Subscribe
     public void onPostLogin(PostLoginEvent event) {
         Player player = event.getPlayer();
-        if (!player.isOnlineMode()) { player.disconnect(Messages.error("DDS Manager UUID 白名单要求通过 Velocity 正版身份验证。")); return; }
+        if (!player.isOnlineMode()) {
+            player.disconnect(plugin.language().error(player, "connection.offline-blocked"));
+            return;
+        }
         plugin.protocol().attach(player);
         var profile = plugin.players().loadForPlayer(player, plugin.config().chat.defaultChannel); plugin.sessions().bind(player, profile);
         if (plugin.config().features.whitelist) {
             boolean hasAnyAccessibleServer = plugin.proxy().getAllServers().stream().anyMatch(server -> plugin.access().canAccess(player, profile, server.getServerInfo().getName()));
-            if (!hasAnyAccessibleServer) player.disconnect(Messages.error("你没有任何可访问的服务器。"));
+            if (!hasAnyAccessibleServer) player.disconnect(plugin.language().error(player, "connection.no-access"));
         }
     }
 
@@ -49,7 +70,7 @@ public final class ConnectionListener {
         if (!event.getResult().isAllowed()) return; Player player = event.getPlayer(); var profile = plugin.sessions().get(player).orElse(null);
         if (profile == null) { event.setResult(ServerPreConnectEvent.ServerResult.denied()); return; }
         var target = event.getResult().getServer().orElse(event.getOriginalServer()); String targetName = target.getServerInfo().getName(); var decision = plugin.access().evaluate(player, profile, targetName);
-        if (!decision.allowed()) { event.setResult(ServerPreConnectEvent.ServerResult.denied()); player.sendMessage(Messages.error("你没有访问服务器 " + targetName + " 的权限。")); return; }
+        if (!decision.allowed()) { event.setResult(ServerPreConnectEvent.ServerResult.denied()); player.sendMessage(plugin.language().error(player, "connection.server-denied", "server", targetName)); return; }
         plugin.presence().expectServer(player, targetName); plugin.protocol().settleTabViewer(player); plugin.protocol().attach(player);
     }
 
@@ -71,8 +92,8 @@ public final class ConnectionListener {
             player.getCurrentServer().ifPresent(connection -> {
                 if (!plugin.config().features.bridgeJoinLeave) return;
                 String server = connection.getServerInfo().getName();
-                plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 离开 ", NamedTextColor.YELLOW)
-                        .append(plugin.presence().switchBadge(server, plugin.switcher().command(server), NamedTextColor.YELLOW)), player);
+                plugin.chatBridge().broadcastPresence(viewer -> plugin.language().styled(viewer, "presence.leave-prefix", "player", player.getUsername())
+                        .append(plugin.presence().switchBadge(viewer, server, plugin.switcher().command(server), NamedTextColor.YELLOW)), player);
             });
         });
         plugin.presence().clear(player); plugin.switcher().clear(player); plugin.tabSync().removeSubject(player.getUniqueId()); plugin.tabSync().clearViewer(player);

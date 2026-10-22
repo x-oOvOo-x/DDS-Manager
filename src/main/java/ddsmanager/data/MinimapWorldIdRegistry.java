@@ -40,7 +40,7 @@ public final class MinimapWorldIdRegistry {
 
     private State load() {
         try { return store.read(file, State.class).map(State::normalize).orElseGet(State::new); }
-        catch (IOException e) { throw new IllegalStateException("无法读取小地图世界 ID 注册表: " + file, e); }
+        catch (IOException e) { throw new IllegalStateException("Unable to read minimap world ID registry: " + file, e); }
     }
 
     private void persist(State next) {

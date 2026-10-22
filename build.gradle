@@ -7,7 +7,7 @@ group = 'ddsmanager'
 version = project.version
 
 def javaToolchainVersion = providers.gradleProperty('javaToolchainVersion').orElse('21').get().toInteger()
-def javaRelease = providers.gradleProperty('javaRelease').orElse('21').get().toInteger()
+def javaRelease = providers.gradleProperty('javaRelease').orElse('17').get().toInteger()
 def nettyCompileVersion = providers.gradleProperty('nettyCompileVersion').orElse('4.1.118.Final').get()
 
 java {
@@ -15,8 +15,9 @@ java {
     withSourcesJar()
 }
 
-// Velocity 4 API metadata declares JVM 25. Compatibility jobs compile it with JDK 25
-// while --release 21 keeps the distributable plugin bytecode usable on Velocity 3.x.
+// Velocity 4 API metadata declares JVM 25, so its API compilation uses JDK 25.
+// The distributed plugin targets Java 17 bytecode for older Velocity 3.x runtimes.
+// Compilation alone is not proof of runtime compatibility; test every supported proxy.
 configurations.configureEach {
     if (canBeResolved) attributes.attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, javaToolchainVersion)
 }

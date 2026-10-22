@@ -2,6 +2,7 @@ package ddsmanager.service;
 
 import com.velocitypowered.api.proxy.Player;
 import ddsmanager.config.PluginConfig;
+import ddsmanager.i18n.LanguageService;
 import ddsmanager.util.ServerLabelFormatter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -15,10 +16,11 @@ import java.util.function.Supplier;
 public final class NetworkPresenceService {
     private static final long EXPECTATION_TTL_MS = 30_000L;
     private final Supplier<PluginConfig> config;
+    private final LanguageService language;
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
     private final Map<UUID, Expectation> expectedServers = new ConcurrentHashMap<>();
 
-    public NetworkPresenceService(Supplier<PluginConfig> config) { this.config = config; }
+    public NetworkPresenceService(Supplier<PluginConfig> config, LanguageService language) { this.config = config; this.language = language; }
     public void expectServer(Player player, String server) {
         if (server == null || server.isBlank()) return;
         UUID uuid = player.getUniqueId();
@@ -48,30 +50,30 @@ public final class NetworkPresenceService {
         while (true) { State old = states.get(uuid); if (state.equals(old)) return false; if (old == null) { if (states.putIfAbsent(uuid, state) == null) return true; } else if (states.replace(uuid, old, state)) return true; }
     }
     public String diagnostic(Player player) { return diagnostic(player, ChatBridgeService.serverName(player)); }
-    public String diagnostic(Player player, String server) { State s = stateForServer(player, server); return s == null ? "未捕获维度数据" : s.dimension().displayName + " (" + s.source() + ")"; }
+    public String diagnostic(Player player, String server) { State s = stateForServer(player, server); return s == null ? language.format(player, "presence.dimension-waiting") : language.format(player, s.dimension().key) + " (" + s.source() + ")"; }
     public void clear(Player player) { UUID uuid = player.getUniqueId(); states.remove(uuid); expectedServers.remove(uuid); }
 
-    public Component tabName(Player player) {
+    public Component tabName(Player player, Player viewer) {
         PluginConfig.Presence p = config.get().presence; String server = ChatBridgeService.serverName(player); State state = stateForServer(player, server);
-        Dimension dimension = state == null ? Dimension.UNKNOWN : state.dimension(); String source = state == null || state.source().isBlank() ? "等待 Join Game / Respawn 数据" : state.source();
+        Dimension dimension = state == null ? Dimension.UNKNOWN : state.dimension(); String source = state == null || state.source().isBlank() ? language.format(viewer, "presence.dimension-waiting") : state.source();
         Component out = Component.empty();
-        if (p.showDimensionInTabName) out = out.append(dimensionSymbol(dimension).hoverEvent(HoverEvent.showText(Component.text("维度: " + dimension.displayName + "\n标识: " + source, NamedTextColor.GRAY)))).append(Component.space());
-        if (p.showServerInTabName) out = out.append(serverLabel(server).hoverEvent(HoverEvent.showText(Component.text("服务器: " + server, NamedTextColor.GRAY))));
+        if (p.showDimensionInTabName) out = out.append(dimensionSymbol(dimension).hoverEvent(HoverEvent.showText(language.styled(viewer, "presence.tab-dimension", "dimension", language.format(viewer, dimension.key), "signal", source)))).append(Component.space());
+        if (p.showServerInTabName) out = out.append(serverLabel(server).hoverEvent(HoverEvent.showText(language.styled(viewer, "presence.tab-server", "server", server))));
         return out.append(Component.text(player.getUsername(), NamedTextColor.WHITE));
     }
 
-    public Component serverBadge(Player player, String server, String switchCommand) {
+    public Component serverBadge(Player player, Player viewer, String server, String switchCommand) {
         State state = stateForServer(player, server); Dimension dimension = state == null ? Dimension.UNKNOWN : state.dimension();
-        Component badge = serverLabel(server).hoverEvent(HoverEvent.showText(Component.text(server + "\n维度: " + dimension.displayName + (switchCommand == null ? "" : "\n点击切换服务器"), NamedTextColor.GRAY)));
+        Component badge = serverLabel(server).hoverEvent(HoverEvent.showText(language.styled(viewer, "presence.server-hover", "server", server, "dimension", language.format(viewer, dimension.key), "click", switchCommand == null ? "" : language.format(viewer, "presence.click"))));
         return switchCommand == null ? badge : badge.clickEvent(ClickEvent.runCommand(switchCommand));
     }
-    public Component switchBadge(Player player, String server) { return switchBadge(server, null, NamedTextColor.GRAY); }
-    public Component switchBadge(String server, String switchCommand, NamedTextColor color) {
-        Component badge = Component.text(ServerLabelFormatter.plainText(config.get().presence.serverLabel(server)), color)
-                .hoverEvent(HoverEvent.showText(Component.text("服务器: " + server + (switchCommand == null ? "" : "\n点击切换服务器"), NamedTextColor.GRAY)));
+    public Component switchBadge(Player player, String server) { return switchBadge(player, server, null, NamedTextColor.GRAY); }
+    public Component switchBadge(Player viewer, String server, String switchCommand, NamedTextColor color) {
+        Component badge = ServerLabelFormatter.render(config.get().presence.serverLabel(server), color)
+                .hoverEvent(HoverEvent.showText(language.styled(viewer, "presence.switch-hover", "server", server, "click", switchCommand == null ? "" : language.format(viewer, "presence.click"))));
         return switchCommand == null ? badge : badge.clickEvent(ClickEvent.runCommand(switchCommand));
     }
-    public Component chatBadge(Player player, String switchCommand) { return serverBadge(player, ChatBridgeService.serverName(player), switchCommand).append(Component.space()); }
+    public Component chatBadge(Player player, Player viewer, String switchCommand) { return serverBadge(player, viewer, ChatBridgeService.serverName(player), switchCommand).append(Component.space()); }
     private Component serverLabel(String server) { return ServerLabelFormatter.render(config.get().presence.serverLabel(server), NamedTextColor.GRAY); }
     private Component dimensionSymbol(Dimension d) { return Component.text(config.get().presence.dimensionSymbol, d.color); }
     private State currentState(Player player) { return stateForServer(player, ChatBridgeService.serverName(player)); }
@@ -98,9 +100,9 @@ public final class NetworkPresenceService {
     private record Detection(Dimension dimension, String source) {}
 
     enum Dimension {
-        OVERWORLD("主世界", NamedTextColor.GREEN), NETHER("下界", NamedTextColor.RED), END("末地", NamedTextColor.LIGHT_PURPLE), UNKNOWN("未知", NamedTextColor.GRAY);
-        private final String displayName; private final NamedTextColor color;
-        Dimension(String displayName, NamedTextColor color) { this.displayName = displayName; this.color = color; }
+        OVERWORLD("presence.dimension.overworld", NamedTextColor.GREEN), NETHER("presence.dimension.nether", NamedTextColor.RED), END("presence.dimension.end", NamedTextColor.LIGHT_PURPLE), UNKNOWN("presence.dimension.unknown", NamedTextColor.GRAY);
+        private final String key; private final NamedTextColor color;
+        Dimension(String key, NamedTextColor color) { this.key = key; this.color = color; }
         private static Detection detect(String... signals) {
             String fallback = "";
             if (signals != null) for (String raw : signals) {
