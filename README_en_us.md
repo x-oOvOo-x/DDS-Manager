@@ -14,6 +14,7 @@ A management plugin for authenticated Java Edition Velocity networks.
 - Clickable chat components for whitelist pages, player details, server status, and more
 - Hover authorization sources, click-to-add/remove actions, and one-step confirmation for dangerous operations
 - Atomic JSON writes with backup recovery, asynchronous logging, and administrative auditing
+- Nine built-in languages with customizable translations; network-wide UUID bans with login enforcement
 
 ## Tab Display
 
@@ -106,7 +107,7 @@ The resulting Tab entries may look like:
 
 ## Administrators and Permissions
 
-On first startup, DDS generates `plugins/dds-manager/config.json`. Stop the proxy and add authenticated UUIDs:
+On first startup, DDS generates `plugins/dds-manager/config.json`. Each configuration setting is annotated in Chinese and English with `//` comments, including server prefixes, labels, administrator UUIDs, and server group entries. After upgrading and restarting Velocity, DDS preserves the configuration values while regenerating bilingual comments. Back up the configuration before editing it; `/dds reload` only reads configuration and does not rewrite comments. Stop the proxy and add authenticated UUIDs:
 
 ```json
 {
@@ -132,6 +133,33 @@ Public player commands include `/dds channel [local|global]` and `/dds seen <pla
 
 On first startup, DDS generates the file from existing network-wide authorization data. After editing it, run `/dds reload` and click `[Confirm]` once to synchronize. New names become pending entries and are bound to authenticated UUIDs on first login. Removing a name revokes only the network-wide scope; per-server and server-group authorization remains intact. If the file contains an invalid format or player name, the entire synchronization is rejected instead of partially deleting entries from incomplete data. Network-wide whitelist commands and snapshot imports also write back to this file automatically.
 
+## Multilingual Support
+
+DDS Manager includes nine built-in languages: Simplified Chinese `zh_CN`, Traditional Chinese `zh_TW`, English `en_US`, French `fr_FR`, Japanese `ja_JP`, Korean `ko_KR`, Russian `ru_RU`, German `de_DE`, and Spanish (Spain) `es_ES`. These translations apply to DDS Manager messages only; they do not change the language of Minecraft, Velocity, or other plugins.
+
+`language.detectClientLanguage` in `config.json` is enabled by default and selects messages according to a player's client locale. Chinese clients in Hong Kong or Macau use `zh_TW` by default; Singapore Chinese clients use `zh_CN`. Unmatched locales fall back to `defaultLocale`, then missing message keys fall back to `fallbackLocale` / English. The Velocity console uses `consoleLocale`.
+
+On first startup, bundled JSON language files are copied into `plugins/dds-manager/lang/`. Administrators can edit them or add language files following the `<language>_<COUNTRY>.json` naming pattern, then run `dds reload` to reload translations.
+
+Routine INFO logs listing language packs are suppressed; invalid files, mismatched placeholders, and loading failures continue to produce warnings.
+
+## Network-wide UUID Bans
+
+Use the following commands to manage network-wide bans. The `dds-manager.ban.manage` permission grants add/remove access, while `dds-manager.ban.view` permits read-only queries; `dds-manager.admin` grants full administration.
+
+```text
+/dds ban add <player|uuid> [reason...]
+/dds ban remove <player|uuid>
+/dds ban list [page]
+/dds ban check <player|uuid>
+```
+
+Bans use the authenticated UUID as the unique identifier and remain in effect when the player changes their name. Banning a connected player disconnects them immediately; subsequent logins are blocked during Velocity's `LoginEvent`. Administrator and whitelist-bypass privileges do not override bans. For players who have never joined this proxy, enter their authenticated UUID directly. Add/remove actions use the existing single-use confirmation, permission recheck, and audit logging.
+
+Bans are stored separately from profiles and the whitelist in `plugins/dds-manager/bans.json`. A malformed or invalid file **blocks new logins** instead of being silently replaced with an empty ban list. After repairing the file, run `/dds reload`. Ban command messages follow the player's client language or the console locale; login-time messages use the configured default language if the client locale is not yet known.
+
+**Compatibility:** CI checks stable Velocity versions `3.4.0`, `3.5.1`, `4.0.0`, `4.1.0`, `4.1.1`, and `4.2.0`. The plugin targets Java 17 bytecode. Passing CI does not establish that every proxy/client combination has been validated on a live server.
+
 ## Whitelist Snapshots and Reliability
 
 `/dds whitelist export [file]` creates UUID-based snapshots, preserving separate historical accounts even if they shared the same username. During import, known UUIDs retain their current names, preventing authorization from being transferred from an old account to a newer account with the same name. Unknown names remain pending for compatibility with older name-based snapshots. Imports validate the entire file first; invalid UUIDs, player names, authorization entries, or duplicate identities reject the whole import. Disk-write failures are reported separately, and successfully persisted entries are not rolled back.
@@ -146,6 +174,7 @@ Administrative tasks re-check player connection and permissions immediately befo
 /dds player <player>
 /dds reload
 /dds alert <message...>
+/dds ban add|remove|list|check <player|uuid> [reason...]
 /dds whitelist status|on|off
 /dds whitelist add|remove all <player...>
 /dds whitelist add|remove server <server> <player...>
@@ -158,7 +187,7 @@ Administrative tasks re-check player connection and permissions immediately befo
 /dds group list [group]
 ```
 
-Dangerous operations use a single confirmation step: `[DDS] Dangerous operation: <description> [Confirm]`. Clicking it executes the action directly and outputs only the final result. Audit logs are stored in `logs/audit-YYYY-MM-DD.log`.
+Dangerous operations require a single-use confirmation. Players click `[Confirm]` in-game; the Velocity proxy console displays a command that can be typed as `dds confirm <token>` (without `/`). Tokens expire after two minutes and can be used only once. Permissions are rechecked at confirmation time. Audit logs are stored in `logs/audit-YYYY-MM-DD.log`.
 
 ## Build and License
 
