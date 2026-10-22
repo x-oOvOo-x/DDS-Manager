@@ -18,6 +18,6 @@ public final class ChatListener {
             plugin.chatLog().append(server, player.getUsername(), profile.channel, event.getMessage());
         }
         plugin.chatBridge().bridge(player, event.getMessage());
-        // 不取消、不修改原 PlayerChatEvent，避免破坏当前子服的正常/签名聊天链路。
+        // Do not cancel or rewrite the original PlayerChatEvent; preserve signed chat on the backend.
     }
 }

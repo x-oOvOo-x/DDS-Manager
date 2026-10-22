@@ -33,57 +33,57 @@ public final class AccessService {
 
     public Decision evaluate(Player player, PlayerProfile profile, String serverName) {
         PluginConfig cfg = config.get();
-        if (!cfg.features.whitelist) return Decision.allow("网络白名单未开启");
-        if (player.hasPermission(ADMIN_PERMISSION)) return Decision.allow("管理员权限节点");
-        if (isAdministrator(player)) return Decision.allow("内置管理员 UUID");
-        if (player.hasPermission("dds-manager.bypass.whitelist")) return Decision.allow("白名单绕过权限");
+        if (!cfg.features.whitelist) return Decision.allow("access.reason.whitelist-off");
+        if (player.hasPermission(ADMIN_PERMISSION)) return Decision.allow("access.reason.admin-node");
+        if (isAdministrator(player)) return Decision.allow("access.reason.admin-uuid");
+        if (player.hasPermission("dds-manager.bypass.whitelist")) return Decision.allow("access.reason.bypass");
 
         if (cfg.features.permissionBasedAccess) {
             String serverPermission = "dds-manager.server." + AccessScopes.permissionToken(serverName);
-            if (player.hasPermission(serverPermission)) return Decision.allow("权限节点 " + serverPermission);
+            if (player.hasPermission(serverPermission)) return Decision.allow("access.reason.permission",  serverPermission);
             for (var entry : cfg.serverGroups.entrySet()) {
                 if (!contains(entry.getValue(), serverName)) continue;
                 String groupPermission = "dds-manager.group." + AccessScopes.permissionToken(entry.getKey());
-                if (player.hasPermission(groupPermission)) return Decision.allow("权限节点 " + groupPermission);
+                if (player.hasPermission(groupPermission)) return Decision.allow("access.reason.permission",  groupPermission);
             }
         }
 
         var uuid = profile == null ? Optional.<UUID>empty() : PlayerRepository.parseUuid(profile.uuid);
         if (uuid.isEmpty() || !uuid.get().equals(player.getUniqueId()))
-            return Decision.deny("玩家档案 UUID 未绑定或不匹配");
+            return Decision.deny("access.reason.uuid-mismatch");
         return evaluateScopes(profile, serverName, cfg);
     }
 
     public Decision evaluateStored(PlayerProfile profile, String serverName) {
         PluginConfig cfg = config.get();
-        if (!cfg.features.whitelist) return Decision.allow("网络白名单未开启");
+        if (!cfg.features.whitelist) return Decision.allow("access.reason.whitelist-off");
         if (profile == null || PlayerRepository.parseUuid(profile.uuid).isEmpty())
-            return Decision.deny("等待玩家首次通过 Velocity 验证并绑定 UUID");
+            return Decision.deny("access.reason.uuid-pending");
         if (cfg.administrators != null && cfg.administrators.stream().anyMatch(uuid -> uuid.equalsIgnoreCase(profile.uuid)))
-            return Decision.allow("内置管理员 UUID");
+            return Decision.allow("access.reason.admin-uuid");
         return evaluateScopes(profile, serverName, cfg);
     }
 
     private Decision evaluateScopes(PlayerProfile profile, String serverName, PluginConfig cfg) {
-        if (profile.accessScopes == null) return Decision.deny("没有白名单授权");
+        if (profile.accessScopes == null) return Decision.deny("access.reason.no-grant");
         for (String scope : profile.accessScopes) {
-            if (AccessScopes.isAll(scope)) return Decision.allow("全网白名单");
+            if (AccessScopes.isAll(scope)) return Decision.allow("access.reason.global");
             var directServer = AccessScopes.serverName(scope);
             if (directServer.isPresent() && directServer.get().equalsIgnoreCase(serverName))
-                return Decision.allow("服务器白名单 " + AccessScopes.server(serverName));
+                return Decision.allow("access.reason.server",  AccessScopes.server(serverName));
             var groupName = AccessScopes.groupName(scope);
             if (groupName.isPresent()) {
                 Set<String> group = findGroup(groupName.get(), cfg.serverGroups);
                 if (group != null && contains(group, serverName))
-                    return Decision.allow("服务器组白名单 " + AccessScopes.group(groupName.get()));
+                    return Decision.allow("access.reason.group",  AccessScopes.group(groupName.get()));
             }
             if (scope != null && scope.equalsIgnoreCase(serverName))
-                return Decision.allow("旧版服务器白名单 " + scope);
+                return Decision.allow("access.reason.legacy-server",  scope);
             Set<String> legacyGroup = findGroup(scope, cfg.serverGroups);
             if (legacyGroup != null && contains(legacyGroup, serverName))
-                return Decision.allow("旧版服务器组白名单 " + scope);
+                return Decision.allow("access.reason.legacy-group",  scope);
         }
-        return Decision.deny("没有匹配 " + serverName + " 的白名单或权限");
+        return Decision.deny("access.reason.no-match", serverName);
     }
 
     private static Set<String> findGroup(String name, Map<String, Set<String>> groups) {
@@ -96,8 +96,10 @@ public final class AccessService {
         return values != null && target != null && values.stream().anyMatch(v -> v != null && v.equalsIgnoreCase(target));
     }
 
-    public record Decision(boolean allowed, String reason) {
-        public static Decision allow(String reason) { return new Decision(true, reason); }
-        public static Decision deny(String reason) { return new Decision(false, reason); }
+    public record Decision(boolean allowed, String reasonKey, String reasonValue) {
+        public static Decision allow(String key) { return new Decision(true, key, ""); }
+        public static Decision allow(String key, String value) { return new Decision(true, key, value); }
+        public static Decision deny(String key) { return new Decision(false, key, ""); }
+        public static Decision deny(String key, String value) { return new Decision(false, key, value); }
     }
 }

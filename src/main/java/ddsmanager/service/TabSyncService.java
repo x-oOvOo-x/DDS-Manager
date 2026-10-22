@@ -59,8 +59,8 @@ public final class TabSyncService {
     public boolean refreshSubjectDisplay(Player subject) {
         if (!config.get().features.syncTabList) return true;
         UUID uuid = subject.getUniqueId(); PluginConfig.Presence p = config.get().presence; boolean selfReady = true;
-        Component display = p.showServerInTabName || p.showDimensionInTabName ? presence.tabName(subject) : null;
         for (Player viewer : proxy.getAllPlayers()) {
+            Component display = p.showServerInTabName || p.showDimensionInTabName ? presence.tabName(subject, viewer) : null;
             TabState state = state(viewer); var existing = state.tab().getEntry(uuid);
             if (existing.isPresent()) { applyDisplay(existing.get(), state.decorated(), uuid, display, false); continue; }
             if (ChatBridgeService.serverName(viewer).equalsIgnoreCase(ChatBridgeService.serverName(subject))) {
@@ -80,7 +80,7 @@ public final class TabSyncService {
     private void refreshEntry(Player viewer, Player subject, TabList tab, Set<UUID> ours, Map<UUID, Component> styled, boolean forceDisplay) {
         UUID uuid = subject.getUniqueId(); boolean remote = !ChatBridgeService.serverName(viewer).equalsIgnoreCase(ChatBridgeService.serverName(subject));
         PluginConfig.Presence p = config.get().presence;
-        Component display = p.showServerInTabName || p.showDimensionInTabName ? presence.tabName(subject) : null;
+        Component display = p.showServerInTabName || p.showDimensionInTabName ? presence.tabName(subject, viewer) : null;
         var existing = tab.getEntry(uuid); int fallbackLatency = existing.map(TabListEntry::getLatency).orElse(0);
         int latency = displayLatency(subject.getPing(), fallbackLatency);
         if (existing.isPresent()) {

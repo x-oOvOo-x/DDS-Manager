@@ -17,7 +17,7 @@ public final class ServerSwitchListener {
         var connection = player.getCurrentServer().orElse(null);
         String current = connection == null ? "" : connection.getServerInfo().getName();
         String previous = event.getPreviousServer() == null ? "" : event.getPreviousServer().getServerInfo().getName();
-        Component previousBadge = previous.isBlank() ? Component.empty() : plugin.presence().switchBadge(previous, plugin.switcher().command(previous), NamedTextColor.GRAY);
+
         plugin.presence().connected(player, current); plugin.protocol().settleTabViewer(player);
         if (plugin.config().features.syncTabList) { plugin.tabSync().refreshViewer(player); plugin.tabSync().refreshSubject(player); }
         var profile = plugin.sessions().get(player).orElse(null); if (profile == null) return;
@@ -28,10 +28,13 @@ public final class ServerSwitchListener {
         }
 
         boolean bridge = plugin.config().features.bridgeJoinLeave;
-        if (bridge && previous.isBlank()) plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " 连接至 ", NamedTextColor.YELLOW)
-                .append(plugin.presence().switchBadge(current, plugin.switcher().command(current), NamedTextColor.YELLOW)), player);
+        if (bridge && previous.isBlank()) plugin.chatBridge().broadcastPresence(viewer ->
+                plugin.language().styled(viewer, "presence.join-prefix", "player", player.getUsername())
+                  .append(plugin.presence().switchBadge(viewer, current, plugin.switcher().command(current), NamedTextColor.YELLOW)), player);
         else if (bridge && plugin.config().presence.showServerSwitches && !previous.equalsIgnoreCase(current))
-            plugin.chatBridge().broadcastPresence(Component.text(player.getUsername() + " ", NamedTextColor.GRAY).append(previousBadge)
-                    .append(Component.text(" ▸ ", NamedTextColor.GRAY)).append(plugin.presence().switchBadge(current, plugin.switcher().command(current), NamedTextColor.GRAY)), player);
+            plugin.chatBridge().broadcastPresence(viewer -> plugin.language().styled(viewer, "presence.switch-prefix", "player", player.getUsername())
+                  .append(plugin.presence().switchBadge(viewer, previous, plugin.switcher().command(previous), NamedTextColor.GRAY))
+                  .append(Component.text(" ▸ ", NamedTextColor.GRAY))
+                  .append(plugin.presence().switchBadge(viewer, current, plugin.switcher().command(current), NamedTextColor.GRAY)), player);
     }
 }

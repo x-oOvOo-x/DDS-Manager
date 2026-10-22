@@ -27,10 +27,10 @@ public final class ConfigService {
     private PluginConfig read(boolean initialize) throws IOException {
         try {
             PluginConfig config = store.read(path, PluginConfig.class, ConfigService::stripComments).orElseGet(() -> initialize ? new PluginConfig() : null);
-            if (config == null) throw new IOException("配置文件不存在，保留当前配置");
+            if (config == null) throw new IOException("Config file not found; keeping current configuration");
             List<String> warnings = validate(config); config.normalize(); if (initialize) save(config);
             validationWarnings = List.copyOf(warnings); warnings.forEach(w -> logger.warn("DDS Manager config: {}", w)); return config;
-        } catch (RuntimeException e) { throw new IOException("配置无效: " + errorDetail(e), e); }
+        } catch (RuntimeException e) { throw new IOException("Invalid configuration: " + errorDetail(e), e); }
     }
     public void save(PluginConfig config) throws IOException { store.writeText(path, render(config)); }
     public List<String> validationWarnings() { return validationWarnings; }
@@ -50,68 +50,89 @@ public final class ConfigService {
 
     static String render(PluginConfig c) {
         StringBuilder s = new StringBuilder("{\n");
-        comment(s, 1, "配置格式版本，由 DDS 自动维护，请勿手动降低"); value(s, 1, "schemaVersion", c.schemaVersion, true);
-        comment(s, 1, "功能总开关"); line(s, 1, "\"features\": {");
-        comment(s, 2, "是否启用 DDS 统一白名单"); value(s, 2, "whitelist", c.features.whitelist, true);
-        comment(s, 2, "是否记住玩家最后所在服务器并在下次连接时优先返回"); value(s, 2, "rememberLastServer", c.features.rememberLastServer, true);
-        comment(s, 2, "是否启用 DDS Local/Global 跨服聊天桥接"); value(s, 2, "bridgeChat", c.features.bridgeChat, true);
-        comment(s, 2, "是否记录聊天日志"); value(s, 2, "chatLog", c.features.chatLog, true);
-        comment(s, 2, "是否同步跨服 Tab 列表与 Presence 信息"); value(s, 2, "syncTabList", c.features.syncTabList, true);
-        comment(s, 2, "是否广播玩家进服、离服和切服提示"); value(s, 2, "bridgeJoinLeave", c.features.bridgeJoinLeave, true);
-        comment(s, 2, "是否同步 Xaero/VoxelMap 使用的世界标识"); value(s, 2, "minimapWorldSync", c.features.minimapWorldSync, true);
-        comment(s, 2, "是否允许通过 Velocity 权限节点授予服务器访问权限"); value(s, 2, "permissionBasedAccess", c.features.permissionBasedAccess, false); line(s, 1, "},");
+        comment(s, 1, "配置格式版本，由 DDS 自动维护，请勿手动降低", "Configuration schema version, managed by DDS. Do not decrease it manually."); value(s, 1, "schemaVersion", c.schemaVersion, true);
+        comment(s, 1, "功能总开关", "Feature toggles"); line(s, 1, "\"features\": {");
+        comment(s, 2, "是否启用 DDS 统一白名单", "Enable the DDS unified whitelist"); value(s, 2, "whitelist", c.features.whitelist, true);
+        comment(s, 2, "是否记住玩家最后所在服务器并在下次连接时优先返回", "Remember a player's last server and prefer it on reconnect"); value(s, 2, "rememberLastServer", c.features.rememberLastServer, true);
+        comment(s, 2, "是否启用 DDS Local/Global 跨服聊天桥接", "Enable DDS Local/Global cross-server chat bridging"); value(s, 2, "bridgeChat", c.features.bridgeChat, true);
+        comment(s, 2, "是否记录聊天日志", "Record chat logs"); value(s, 2, "chatLog", c.features.chatLog, true);
+        comment(s, 2, "是否同步跨服 Tab 列表与 Presence 信息", "Synchronize cross-server tab lists and presence information"); value(s, 2, "syncTabList", c.features.syncTabList, true);
+        comment(s, 2, "是否广播玩家进服、离服和切服提示", "Broadcast player join, leave and server-switch notifications"); value(s, 2, "bridgeJoinLeave", c.features.bridgeJoinLeave, true);
+        comment(s, 2, "是否同步 Xaero/VoxelMap 使用的世界标识", "Synchronize world identifiers used by Xaero/VoxelMap"); value(s, 2, "minimapWorldSync", c.features.minimapWorldSync, true);
+        comment(s, 2, "是否允许通过 Velocity 权限节点授予服务器访问权限", "Allow Velocity permission nodes to grant server access"); value(s, 2, "permissionBasedAccess", c.features.permissionBasedAccess, false); line(s, 1, "},");
 
-        comment(s, 1, "连接路由设置"); line(s, 1, "\"routing\": {");
-        comment(s, 2, "是否尊重 Velocity 首次选出的初始服务器"); value(s, 2, "respectInitialServer", c.routing.respectInitialServer, true);
-        comment(s, 2, "无可用目标时使用的回退服务器名；留空表示不指定"); value(s, 2, "fallbackServer", c.routing.fallbackServer, false); line(s, 1, "},");
+        comment(s, 1, "玩家和控制台语言设置", "Player and console language settings"); line(s, 1, "\"language\": {");
+        comment(s, 2, "玩家默认语言（语言文件代码）", "Default player language (locale file code)"); value(s, 2, "defaultLocale", c.language.defaultLocale, true);
+        comment(s, 2, "当前语言缺少文本时使用的回退语言", "Fallback language when a message key is missing"); value(s, 2, "fallbackLocale", c.language.fallbackLocale, true);
+        comment(s, 2, "控制台输出语言", "Language used for console messages"); value(s, 2, "consoleLocale", c.language.consoleLocale, true);
+        comment(s, 2, "是否根据玩家客户端语言自动选择翻译", "Automatically choose translations based on player client language"); value(s, 2, "detectClientLanguage", c.language.detectClientLanguage, false); line(s, 1, "},");
 
-        comment(s, 1, "聊天设置；同服原生聊天保持子服原样，DDS 不追加服务器标签"); line(s, 1, "\"chat\": {");
-        comment(s, 2, "新玩家默认聊天频道，可选 local 或 global"); value(s, 2, "defaultChannel", c.chat.defaultChannel, false); line(s, 1, "},");
+        comment(s, 1, "连接路由设置", "Connection routing settings"); line(s, 1, "\"routing\": {");
+        comment(s, 2, "是否尊重 Velocity 首次选出的初始服务器", "Respect the initial server selected by Velocity"); value(s, 2, "respectInitialServer", c.routing.respectInitialServer, true);
+        comment(s, 2, "无可用目标时使用的回退服务器名；留空表示不指定", "Fallback server name when no preferred target is available; empty means unset"); value(s, 2, "fallbackServer", c.routing.fallbackServer, false); line(s, 1, "},");
 
-        comment(s, 1, "跨服显示与服务器标签设置"); line(s, 1, "\"presence\": {");
-        comment(s, 2, "是否显示玩家切换服务器的提示"); value(s, 2, "showServerSwitches", c.presence.showServerSwitches, true);
-        comment(s, 2, "是否在 Tab 玩家名中显示服务器标签"); value(s, 2, "showServerInTabName", c.presence.showServerInTabName, true);
-        comment(s, 2, "是否在 Tab 玩家名中显示维度状态符号"); value(s, 2, "showDimensionInTabName", c.presence.showDimensionInTabName, true);
-        comment(s, 2, "服务器名到简写的映射；未配置完整标签时显示为 [简写]"); stringMap(s, 2, "serverPrefixes", c.presence.serverPrefixes, "服务器 %s 的简写", true);
-        comment(s, 2, "服务器名到完整标签模板的映射；支持 DDS 受限 MiniMessage 风格，留空则使用 serverPrefixes"); stringMap(s, 2, "serverLabels", c.presence.serverLabels, "服务器 %s 的完整标签模板", true);
-        comment(s, 2, "Tab 中统一使用的维度符号，颜色由主世界/下界/末地状态决定"); value(s, 2, "dimensionSymbol", c.presence.dimensionSymbol, false); line(s, 1, "},");
+        comment(s, 1, "聊天设置；同服原生聊天保持子服原样，DDS 不追加服务器标签", "Chat settings; native same-server chat stays unchanged without DDS server labels"); line(s, 1, "\"chat\": {");
+        comment(s, 2, "新玩家默认聊天频道，可选 local 或 global", "Default chat channel for new players: local or global"); value(s, 2, "defaultChannel", c.chat.defaultChannel, false); line(s, 1, "},");
 
-        comment(s, 1, "数据持久化设置"); line(s, 1, "\"persistence\": {");
-        comment(s, 2, "脏数据定期写盘间隔，单位为秒，最小值 1"); value(s, 2, "flushIntervalSeconds", c.persistence.flushIntervalSeconds, true);
-        comment(s, 2, "离线玩家缓存保留时间，单位为分钟，最小值 1"); value(s, 2, "cacheMinutes", c.persistence.cacheMinutes, false); line(s, 1, "},");
+        comment(s, 1, "跨服显示与服务器标签设置", "Cross-server display and server label settings"); line(s, 1, "\"presence\": {");
+        comment(s, 2, "是否显示玩家切换服务器的提示", "Show notifications when players switch servers"); value(s, 2, "showServerSwitches", c.presence.showServerSwitches, true);
+        comment(s, 2, "是否在 Tab 玩家名中显示服务器标签", "Show server labels next to player names in the tab list"); value(s, 2, "showServerInTabName", c.presence.showServerInTabName, true);
+        comment(s, 2, "是否在 Tab 玩家名中显示维度状态符号", "Show dimension status symbols in the tab list"); value(s, 2, "showDimensionInTabName", c.presence.showDimensionInTabName, true);
+        comment(s, 2, "服务器名到简写的映射；未配置完整标签时显示为 [简写]", "Map server names to abbreviations; display [abbreviation] if no full label is set"); stringMap(s, 2, "serverPrefixes", c.presence.serverPrefixes, "服务器 %s 的简写", "Abbreviation for server %s", true);
+        comment(s, 2, "服务器名到完整标签模板的映射；支持 DDS 受限 MiniMessage 风格，留空则使用 serverPrefixes", "Map server names to full label templates; supports DDS restricted MiniMessage styling. Empty entries use serverPrefixes"); stringMap(s, 2, "serverLabels", c.presence.serverLabels, "服务器 %s 的完整标签模板", "Full label template for server %s", true);
+        comment(s, 2, "Tab 中统一使用的维度符号，颜色由主世界/下界/末地状态决定", "Shared tab-list dimension symbol; color depends on Overworld, Nether or End"); value(s, 2, "dimensionSymbol", c.presence.dimensionSymbol, false); line(s, 1, "},");
 
-        comment(s, 1, "DDS 内置管理员的正版玩家 UUID 列表；管理员拥有全部管理权限并绕过 DDS 白名单"); stringList(s, 1, "administrators", c.administrators, "管理员 UUID", true);
-        comment(s, 1, "服务器组配置；键为组名，值为该组包含的 Velocity 服务器名"); groupMap(s, 1, "serverGroups", c.serverGroups, false);
+        comment(s, 1, "数据持久化设置", "Data persistence settings"); line(s, 1, "\"persistence\": {");
+        comment(s, 2, "脏数据定期写盘间隔，单位为秒，最小值 1", "Interval for flushing dirty data to disk, in seconds (minimum 1)"); value(s, 2, "flushIntervalSeconds", c.persistence.flushIntervalSeconds, true);
+        comment(s, 2, "离线玩家缓存保留时间，单位为分钟，最小值 1", "Offline player cache retention time, in minutes (minimum 1)"); value(s, 2, "cacheMinutes", c.persistence.cacheMinutes, false); line(s, 1, "},");
+
+        comment(s, 1, "DDS 内置管理员的正版玩家 UUID 列表；管理员拥有全部管理权限并绕过 DDS 白名单", "Online-mode player UUIDs of built-in DDS administrators; they can manage everything and bypass the DDS whitelist"); stringList(s, 1, "administrators", c.administrators, "管理员 UUID", "Administrator UUID", true);
+        comment(s, 1, "服务器组配置；键为组名，值为该组包含的 Velocity 服务器名", "Server groups: keys are group names; values list the Velocity servers in each group"); groupMap(s, 1, "serverGroups", c.serverGroups, false);
         return s.append("}\n").toString();
     }
 
-    private static void stringMap(StringBuilder s, int d, String key, Map<String, String> map, String note, boolean comma) {
+    private static void stringMap(StringBuilder s, int d, String key, Map<String, String> map, String zhNote, String enNote, boolean comma) {
         line(s, d, JSON.toJson(key) + ": {"); int i = 0, n = map == null ? 0 : map.size();
-        if (map != null) for (var e : map.entrySet()) { comment(s, d + 1, note.formatted(e.getKey())); value(s, d + 1, e.getKey(), e.getValue(), ++i < n); }
+        if (map != null) for (var e : map.entrySet()) {
+            comment(s, d + 1, zhNote.formatted(e.getKey()), enNote.formatted(e.getKey()));
+            value(s, d + 1, e.getKey(), e.getValue(), ++i < n);
+        }
         line(s, d, "}" + (comma ? "," : ""));
     }
-    private static void stringList(StringBuilder s, int d, String key, Collection<String> values, String note, boolean comma) {
+    private static void stringList(StringBuilder s, int d, String key, Collection<String> values, String zhNote, String enNote, boolean comma) {
         line(s, d, JSON.toJson(key) + ": ["); int i = 0, n = values == null ? 0 : values.size();
-        if (values != null) for (String v : values) { comment(s, d + 1, note + "：" + v); line(s, d + 1, JSON.toJson(v) + (++i < n ? "," : "")); }
+        if (values != null) for (String v : values) {
+            comment(s, d + 1, zhNote + "：" + v, enNote + ": " + v);
+            line(s, d + 1, JSON.toJson(v) + (++i < n ? "," : ""));
+        }
         line(s, d, "]" + (comma ? "," : ""));
     }
     private static void groupMap(StringBuilder s, int d, String key, Map<String, Set<String>> groups, boolean comma) {
         line(s, d, JSON.toJson(key) + ": {"); int gi = 0, gn = groups == null ? 0 : groups.size();
         if (groups != null) for (var e : groups.entrySet()) {
-            comment(s, d + 1, "服务器组 " + e.getKey()); line(s, d + 1, JSON.toJson(e.getKey()) + ": [");
-            int i = 0, n = e.getValue() == null ? 0 : e.getValue().size(); if (e.getValue() != null) for (String v : e.getValue()) { comment(s, d + 2, "该组包含服务器 " + v); line(s, d + 2, JSON.toJson(v) + (++i < n ? "," : "")); }
+            comment(s, d + 1, "服务器组 " + e.getKey(), "Server group " + e.getKey());
+            line(s, d + 1, JSON.toJson(e.getKey()) + ": [");
+            int i = 0, n = e.getValue() == null ? 0 : e.getValue().size();
+            if (e.getValue() != null) for (String v : e.getValue()) {
+                comment(s, d + 2, "该组包含服务器 " + v, "Server in this group: " + v);
+                line(s, d + 2, JSON.toJson(v) + (++i < n ? "," : ""));
+            }
             line(s, d + 1, "]" + (++gi < gn ? "," : ""));
         }
         line(s, d, "}" + (comma ? "," : ""));
     }
     private static void value(StringBuilder s, int d, String key, Object value, boolean comma) { line(s, d, JSON.toJson(key) + ": " + JSON.toJson(value) + (comma ? "," : "")); }
-    private static void comment(StringBuilder s, int d, String text) { line(s, d, "// " + text); }
+    private static void comment(StringBuilder s, int d, String chinese, String english) {
+        line(s, d, "// " + chinese);
+        line(s, d, "// " + english);
+    }
     private static void line(StringBuilder s, int d, String text) { s.append("  ".repeat(d)).append(text).append('\n'); }
 
     private static List<String> validate(PluginConfig c) {
         List<String> w = new ArrayList<>();
         if (c.schemaVersion != 2) w.add("$.schemaVersion: 仅支持 2，已升级");
         if (c.features == null) w.add("$.features: 缺失或为 null，已恢复默认值");
+        if (c.language == null) w.add("$.language: 缺失或为 null，已恢复默认值");
         if (c.routing == null) w.add("$.routing: 缺失或为 null，已恢复默认值");
         if (c.chat == null) w.add("$.chat: 缺失或为 null，已恢复默认值");
         else if (!"local".equalsIgnoreCase(c.chat.defaultChannel) && !"global".equalsIgnoreCase(c.chat.defaultChannel)) w.add("$.chat.defaultChannel: 只能是 local/global，已回退为 local");
