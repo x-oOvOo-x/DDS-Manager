@@ -148,12 +148,12 @@ class ReleaseUploadTest(unittest.TestCase):
         self.assertEqual(policy["future_26x"], "review_each_new_release")
         self.assertEqual(policy["claim"], "intended_compatibility_range_not_full_runtime_verification")
         self.assertEqual(policy["per_version_runtime_evidence"], "not_recorded")
-        self.assertEqual(config["minecraft_versions"], [])
+        self.assertIn("1.14.4", config["minecraft_versions"])
+        self.assertIn("26.3", config["minecraft_versions"])
         self.assertEqual(config["curseforge_version_ids"], [])
-        with self.assertRaisesRegex(ValueError, "minecraft_versions"):
-            publisher.validate_target("modrinth", config)
-        with self.assertRaisesRegex(ValueError, "curseforge_version_ids"):
-            publisher.validate_target("curseforge", config)
+        self.assertIn("26.3", config["curseforge_version_names"])
+        publisher.validate_target("modrinth", config)
+        publisher.validate_target("curseforge", config)
 
     def test_modrinth_versions_use_exact_releases_within_declared_bounds(self):
         policy = {"minimum": "1.14.4", "current_ceiling": "26.3"}
@@ -174,6 +174,29 @@ class ReleaseUploadTest(unittest.TestCase):
                     publisher.publish_modrinth(self.args, {"minecraft_versions": ["1.21.11"]},
                                                self.jar, "notes", self.digest)
         self.assertEqual(http.call_count, 3)
+
+    def test_curseforge_exact_names_resolve_only_unique_ids(self):
+        records = [{"id": 17, "name": "26.3"}]
+        with patch.dict(os.environ, {
+            "CURSEFORGE_TOKEN": "test", "CURSEFORGE_PROJECT_ID": "1697972"}):
+            with patch.object(publisher, "api", side_effect=[
+                (200, records), (200, {"id": 9000})]) as http:
+                publisher.publish_curseforge(self.args,
+                    {"curseforge_version_ids": [], "curseforge_version_names": ["26.3"]},
+                    self.jar, "notes", self.digest)
+            self.assertIn(b'"gameVersions": [17]', http.call_args.kwargs["data"])
+
+    def test_curseforge_ambiguous_names_fail_without_upload(self):
+        records = [{"id": 17, "name": "1.20.1", "gameVersionTypeID": 2},
+                   {"id": 18, "name": "1.20.1", "gameVersionTypeID": 6}]
+        with patch.dict(os.environ, {
+            "CURSEFORGE_TOKEN": "test", "CURSEFORGE_PROJECT_ID": "1697972"}):
+            with patch.object(publisher, "api", return_value=(200, records)) as http:
+                with self.assertRaisesRegex(RuntimeError, "one unique ID"):
+                    publisher.publish_curseforge(self.args,
+                        {"curseforge_version_ids": [], "curseforge_version_names": ["1.20.1"]},
+                        self.jar, "notes", self.digest)
+                self.assertEqual(http.call_count, 1)
 
     def test_platform_fanout_is_independent(self):
         workflow = (ROOT / ".github/workflows/official-release.yml").read_text("utf-8")
