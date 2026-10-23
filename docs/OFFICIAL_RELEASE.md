@@ -115,3 +115,49 @@ dependencies**, multiple MC-target JARs, and Paper loader declarations.
   owner**, not silently changed in the uploader.
 * No API tokens, remote upload results, runtime integration tests or
   actual user release approval can be inferred from offline CI.
+
+## Minecraft support policy and 0.7.0 acceptance (2026-10-23)
+
+**Target claim, not automatic verification:** DDS Manager intends to retain
+Minecraft Java 1.14.4–26.x compatibility. The review ceiling is currently
+26.3, and every later 26.x release requires its own review. The precise
+target range is recorded in `scripts/release-platforms.json` under
+`minecraft_support_policy`. This is **not** a Modrinth/CurseForge upload
+version list; those platform-specific fields remain empty until their
+published game-version catalog and real compatibility claims are reviewed.
+
+Evidence hierarchy:
+
+1. The actual source code `MinecraftProtocolSupport` accepts protocol IDs
+   >= 477 (Minecraft 1.14), even though the product's target minimum is
+   1.14.4 (protocol 498). The `VERIFIED` set and Java protocol unit tests
+   check selected constants. Neither demonstrates a real client/server
+   successfully exercised the integration on every Minecraft release.
+2. Six Velocity API/JDK compilation targets (3.4.0, 3.5.1, 4.0.0, 4.1.0,
+   4.1.1, 4.2.0) passed CI, but this does not prove those six runtimes
+   have each passed a real multi-backend acceptance run.
+3. On October 23 the maintainer reported passing **10 smoke-test categories**:
+   backup/replace the 0.7.0 candidate JAR; Velocity startup; legitimate
+   UUID login/whitelist; server switch/Last Server; Tab/dimension/Ping;
+   local/global chat; Xaero/VoxelMap switching; administrator, confirmation,
+   and UUID Ban; language/config reload; reconnect, failed switch, and
+   backend shutdown. These are recorded as **user-reported passes**, not as
+   independently verified logs, and no exact Velocity/Minecraft/Java/JAR
+   versions were supplied.
+4. Full client+proxy+backend version coverage, strict permission/invalid
+   data negative tests, and the repository's performance/load matrix
+   (10,000 profiles; 100 users for 10 minutes; 100 chat messages/s for
+   10 minutes; >64 queued actions) have **not** been confirmed in this
+   release review. Their status remains NOT VERIFIED.
+
+Before approving broad platform tags, record exact environment versions,
+test artifacts and SHA256, dated run/log evidence and negative paths. For
+Modrinth, verify specific official API game-version values; for CurseForge,
+verify exact numeric IDs and gameVersionTypeID in the project's category.
+Do not assume project-page group labels or Java source constants are valid
+upload versions. Cross-provider upload failures must remain independent.
+
+**External action:** The Modrinth project currently labels the license
+LGPL-3.0-or-later while this repository distributes GPL-3.0. Review and
+correct the platform listing before publication; no script edits can
+silently fix project-page license metadata.
