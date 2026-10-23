@@ -102,7 +102,7 @@ def validate_target(platform, config):
         low = policy.get("minimum", "")
         high = policy.get("current_ceiling", "")
         def numeric_version(value):
-            if not re.fullmatch(r"[0-9]+(?:\\.[0-9]+){1,2}", value):
+            if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}", value):
                 raise ValueError(f"Modrinth version {value!r} is not an exact released Minecraft version")
             parts = [int(x) for x in value.split(".")]
             return tuple((parts + [0] * 3)[:3])
