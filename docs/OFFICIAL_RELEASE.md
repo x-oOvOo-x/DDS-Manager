@@ -109,10 +109,13 @@ dependencies**, multiple MC-target JARs, and Paper loader declarations.
   still block the common GitHub Release preparation, by design.
 * The official release YAML is restricted to `DDS-Manager` Public
   and does not run upload tasks in Dev. Dev tests are offline only.
-* The existing Modrinth project page advertises `LGPL-3.0-or-later`
-  while the repository LICENSE and Hangar/CurseForge use GPL-3.0.
-  This **external project metadata must be corrected or reviewed by the
-  owner**, not silently changed in the uploader.
+* The maintainer's 2026-10-23 screenshot now displays **GPL-3.0-or-later** on
+  Modrinth (rather than the previous LGPL listing). External search caches may
+  still show the stale LGPL value. The GitHub repository's `LICENSE` contains
+  the GNU GPL v3 text and README states `GPL-3.0`, but the separate grant of
+  **`-only` versus `-or-later`** is not yet evidenced. Confirm the intended
+  SPDX variant with the copyright holders before marking exact license parity
+  complete; do not infer the grant from the GPL license text alone.
 * No API tokens, remote upload results, runtime integration tests or
   actual user release approval can be inferred from offline CI.
 
@@ -159,7 +162,18 @@ upload versions. The Modrinth uploader now validates every configured Minecraft
 version as an exact release tag from the official `/tag/game_version` catalog
 and rejects versions outside the declared 1.14.4–26.3 review interval. Cross-provider upload failures must remain independent.
 
-**External action:** The Modrinth project currently labels the license
-LGPL-3.0-or-later while this repository distributes GPL-3.0. Review and
-correct the platform listing before publication; no script edits can
-silently fix project-page license metadata.
+**External listing update:** The maintainer-provided Modrinth screenshot on
+2026-10-23 displays `GPL-3.0-or-later`; the prior **LGPL** mismatch appears
+corrected on the live page. The precise `-only`/`-or-later` copyright grant
+still needs to be explicitly confirmed; this is a metadata/legal declaration,
+not an API upload test. CurseForge displays a GNU GPL license name, without
+its full variant visible in the screenshot.
+
+**Distribution category:** The CurseForge screenshot displays `Bukkit Plugins`
+for DDS Manager. Other Velocity-only plugins also appear in this CurseForge
+category; it does **not** prove DDS Manager works on Bukkit or Paper. Keep
+product description and release installation instructions **Velocity-only**.
+The Modrinth listing includes Minecraft 26.3, whereas the currently visible
+CurseForge version chips only reach 26.2 (+ more versions). Platform game
+version catalog entries and numeric CurseForge IDs must be queried/approved
+individually before setting upload metadata; do not infer them from chips.
