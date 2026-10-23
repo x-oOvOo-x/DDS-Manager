@@ -92,7 +92,9 @@ class ReleaseUploadTest(unittest.TestCase):
                     publisher.publish_modrinth(self.args, {}, self.jar, "notes", self.digest)
 
     def test_modrinth_upload_uses_canonical_project_id(self):
-        responses = [(404, {}), (200, {"id": "ABCD1234"}), (200, {"id": "VERSIONID"})]
+        responses = [(404, {}), (200, {"id": "ABCD1234"}),
+                     (200, [{"version": "1.21.11", "version_type": "release"}]),
+                     (200, {"id": "VERSIONID"})]
         with patch.dict(os.environ, {"MODRINTH_TOKEN": "test", "MODRINTH_PROJECT_SLUG": "dds-manager"}):
             with patch.object(publisher, "api", side_effect=responses) as http:
                 publisher.publish_modrinth(self.args, {"minecraft_versions": ["1.21.11"]},
@@ -151,6 +153,26 @@ class ReleaseUploadTest(unittest.TestCase):
             publisher.validate_target("modrinth", config)
         with self.assertRaisesRegex(ValueError, "curseforge_version_ids"):
             publisher.validate_target("curseforge", config)
+
+    def test_modrinth_versions_use_exact_releases_within_declared_bounds(self):
+        policy = {"minimum": "1.14.4", "current_ceiling": "26.3"}
+        for value in ("1.14.4", "1.21.11", "26.3"):
+            publisher.validate_target("modrinth", {
+                "minecraft_versions": [value], "minecraft_support_policy": policy})
+        for value in ("1.14.3", "26.4", "1.21.x", "26.3-pre1"):
+            with self.assertRaises(ValueError, msg=value):
+                publisher.validate_target("modrinth", {
+                    "minecraft_versions": [value], "minecraft_support_policy": policy})
+
+    def test_modrinth_catalog_rejects_missing_or_snapshot_tags(self):
+        responses = [(404, {}), (200, {"id": "ABCD1234"}),
+                     (200, [{"version": "1.21.11", "version_type": "snapshot"}])]
+        with patch.dict(os.environ, {"MODRINTH_TOKEN": "test", "MODRINTH_PROJECT_SLUG": "dds-manager"}):
+            with patch.object(publisher, "api", side_effect=responses) as http:
+                with self.assertRaisesRegex(RuntimeError, "Unknown/non-release"):
+                    publisher.publish_modrinth(self.args, {"minecraft_versions": ["1.21.11"]},
+                                               self.jar, "notes", self.digest)
+        self.assertEqual(http.call_count, 3)
 
     def test_platform_fanout_is_independent(self):
         workflow = (ROOT / ".github/workflows/official-release.yml").read_text("utf-8")
