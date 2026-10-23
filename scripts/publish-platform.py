@@ -97,6 +97,20 @@ def validate_target(platform, config):
             raise ValueError("CurseForge requires positive numeric game-version IDs")
     elif any(not isinstance(v, str) or not v.strip() for v in versions):
         raise ValueError(f"{platform} requires non-empty string versions")
+    if platform == "modrinth":
+        policy = config.get("minecraft_support_policy", {})
+        low = policy.get("minimum", "")
+        high = policy.get("current_ceiling", "")
+        def numeric_version(value):
+            if not re.fullmatch(r"[0-9]+(?:\\.[0-9]+){1,2}", value):
+                raise ValueError(f"Modrinth version {value!r} is not an exact released Minecraft version")
+            parts = [int(x) for x in value.split(".")]
+            return tuple((parts + [0] * 3)[:3])
+        if not low or not high or numeric_version(low) > numeric_version(high):
+            raise ValueError("Minecraft intended version range is not configured")
+        for version in versions:
+            if not numeric_version(low) <= numeric_version(version) <= numeric_version(high):
+                raise ValueError(f"Minecraft {version} lies outside the reviewed {low}–{high} range")
     if len(versions) != len(set(versions)):
         raise ValueError(f"{platform} has duplicate version metadata")
 
@@ -124,6 +138,18 @@ def publish_modrinth(args, config, jar, notes, digest):
     require_ok(status, project_data, {200}, "Modrinth project lookup")
     if not isinstance(project_data, dict) or not project_data.get("id"):
         raise RuntimeError("Modrinth project lookup returned no canonical ID")
+    # The project UI groups releases (e.g. 1.21.x), but the API requires
+    # concrete game_version tags. Never upload unsupported or snapshot IDs.
+    status, catalog = api(f"{MODRINTH}/tag/game_version")
+    require_ok(status, catalog, {200}, "Modrinth game-version catalog")
+    releases = {
+        item["version"] for item in catalog
+        if isinstance(item, dict) and item.get("version_type") == "release"
+        and isinstance(item.get("version"), str)
+    }
+    unknown = sorted(set(config["minecraft_versions"]) - releases)
+    if unknown:
+        raise RuntimeError(f"Unknown/non-release Modrinth Minecraft versions: {unknown}")
     data = {
         "name": f"DDS Manager {args.version}",
         "version_number": args.version,
