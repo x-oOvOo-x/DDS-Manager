@@ -34,7 +34,7 @@ jobs:
       - name: Verify (Java 17 target)
         run: ./gradlew clean build --no-daemon --stacktrace -PvelocityVersion=${{ matrix.velocity }} -PjavaToolchainVersion=${{ matrix.java }} -PjavaRelease=17
 
-publish:
+  publish:
     # No upload on public main pushes or PRs; only a manually created v* tag.
     needs: compatibility
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'x-oOvOo-x/DDS-Manager' }}
