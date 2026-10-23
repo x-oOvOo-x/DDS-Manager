@@ -93,7 +93,7 @@ def validate_target(platform, config):
     if platform == "curseforge" and not versions:
         names = config.get("curseforge_version_names", [])
         if not isinstance(names, list) or not names or any(
-                not isinstance(v, str) or not re.fullmatch(r"[0-9]+(?:\\.[0-9]+){1,2}", v)
+                not isinstance(v, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,2}", v)
                 for v in names):
             raise ValueError("CurseForge requires reviewed numeric IDs or exact game-version names")
         if len(names) != len(set(names)):
