@@ -1,0 +1,26 @@
+name: Release tooling checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-release-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test without tokens or platform uploads
+        run: python -m unittest discover -s scripts/tests -p 'test_release_platform.py' -v
+      - name: Check publisher syntax
+        run: python -m py_compile scripts/publish-platform.py
+      - name: Lint GitHub Actions release workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/official-release.yml .github/workflows/release-tooling-checks.yml

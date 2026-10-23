@@ -1,0 +1,54 @@
+name: Upload verified release to one platform
+description: Reuse GitHub Release JAR and checksum; never rebuild
+inputs:
+  platform:
+    required: true
+    description: hangar, modrinth, or curseforge
+  tag:
+    required: true
+    description: Existing immutable GitHub release tag
+  version:
+    required: true
+    description: Matching project version
+runs:
+  using: composite
+  steps:
+    - name: Download exact GitHub Release artifacts
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        gh release download "$RELEASE_TAG" --dir dist --pattern "DDS-Manager-$RELEASE_VERSION.jar" --pattern "DDS-Manager-$RELEASE_VERSION.jar.sha256"
+        test -f "dist/DDS-Manager-$RELEASE_VERSION.jar"
+        test -f "dist/DDS-Manager-$RELEASE_VERSION.jar.sha256"
+        (cd dist && sha256sum -c "DDS-Manager-$RELEASE_VERSION.jar.sha256")
+
+    - name: Validate release (no upload)
+      shell: bash
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        set -euo pipefail
+        python3 scripts/publish-platform.py --platform "$PLATFORM" --version "$RELEASE_VERSION" \
+          --jar "dist/DDS-Manager-$RELEASE_VERSION.jar" \
+          --sha256 "dist/DDS-Manager-$RELEASE_VERSION.jar.sha256" \
+          --changelog "docs/releases/$RELEASE_VERSION.md" --dry-run
+
+    - name: Upload this platform only
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        python3 scripts/publish-platform.py --platform "$PLATFORM" --version "$RELEASE_VERSION" \
+          --jar "dist/DDS-Manager-$RELEASE_VERSION.jar" \
+          --sha256 "dist/DDS-Manager-$RELEASE_VERSION.jar.sha256" \
+          --changelog "docs/releases/$RELEASE_VERSION.md"
+        echo "### $PLATFORM — completed" >> "$GITHUB_STEP_SUMMARY"
