@@ -137,6 +137,21 @@ class ReleaseUploadTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "different JAR"):
                     publisher.publish_modrinth(self.args, {}, self.jar, "notes", self.digest)
 
+    def test_declared_minecraft_range_is_a_plan_not_runtime_proof(self):
+        config = json.loads((ROOT / "scripts/release-platforms.json").read_text("utf-8"))
+        policy = config["minecraft_support_policy"]
+        self.assertEqual(policy["minimum"], "1.14.4")
+        self.assertEqual(policy["current_ceiling"], "26.3")
+        self.assertEqual(policy["future_26x"], "review_each_new_release")
+        self.assertEqual(policy["claim"], "intended_compatibility_range_not_full_runtime_verification")
+        self.assertEqual(policy["per_version_runtime_evidence"], "not_recorded")
+        self.assertEqual(config["minecraft_versions"], [])
+        self.assertEqual(config["curseforge_version_ids"], [])
+        with self.assertRaisesRegex(ValueError, "minecraft_versions"):
+            publisher.validate_target("modrinth", config)
+        with self.assertRaisesRegex(ValueError, "curseforge_version_ids"):
+            publisher.validate_target("curseforge", config)
+
     def test_platform_fanout_is_independent(self):
         workflow = (ROOT / ".github/workflows/official-release.yml").read_text("utf-8")
         for platform in ("hangar", "modrinth", "curseforge"):
