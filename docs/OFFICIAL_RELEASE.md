@@ -155,7 +155,9 @@ test artifacts and SHA256, dated run/log evidence and negative paths. For
 Modrinth, verify specific official API game-version values; for CurseForge,
 verify exact numeric IDs and gameVersionTypeID in the project's category.
 Do not assume project-page group labels or Java source constants are valid
-upload versions. Cross-provider upload failures must remain independent.
+upload versions. The Modrinth uploader now validates every configured Minecraft
+version as an exact release tag from the official `/tag/game_version` catalog
+and rejects versions outside the declared 1.14.4–26.3 review interval. Cross-provider upload failures must remain independent.
 
 **External action:** The Modrinth project currently labels the license
 LGPL-3.0-or-later while this repository distributes GPL-3.0. Review and
