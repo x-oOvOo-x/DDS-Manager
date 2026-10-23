@@ -90,6 +90,15 @@ def validate_target(platform, config):
            "modrinth": "minecraft_versions",
            "curseforge": "curseforge_version_ids"}[platform]
     versions = config.get(key)
+    if platform == "curseforge" and not versions:
+        names = config.get("curseforge_version_names", [])
+        if not isinstance(names, list) or not names or any(
+                not isinstance(v, str) or not re.fullmatch(r"[0-9]+(?:\\.[0-9]+){1,2}", v)
+                for v in names):
+            raise ValueError("CurseForge requires reviewed numeric IDs or exact game-version names")
+        if len(names) != len(set(names)):
+            raise ValueError("CurseForge has duplicate game-version names")
+        return
     if not isinstance(versions, list) or not versions:
         raise ValueError(f"{platform} requires a reviewed, non-empty {key} list")
     if platform == "curseforge":
@@ -180,11 +189,26 @@ def publish_curseforge(args, config, jar, notes, digest):
     status, versions = api(f"{CURSEFORGE}/api/game/versions",
                            headers={"X-Api-Token": token})
     require_ok(status, versions, {200}, "CurseForge game version lookup")
-    ids = config["curseforge_version_ids"]
+    ids = config.get("curseforge_version_ids", [])
     available = {item["id"] for item in versions if isinstance(item, dict) and isinstance(item.get("id"), int)}
-    missing = sorted(set(ids) - available)
-    if missing:
-        raise RuntimeError(f"Unknown CurseForge game-version IDs: {missing}")
+    if ids:
+        missing = sorted(set(ids) - available)
+        if missing:
+            raise RuntimeError(f"Unknown CurseForge game-version IDs: {missing}")
+    else:
+        # The official catalog may contain the same display name in several
+        # namespaces (Bukkit, Minecraft, etc.). Never silently choose one.
+        ids = []
+        for name in config["curseforge_version_names"]:
+            matches = {v["id"] for v in versions
+                       if isinstance(v, dict) and v.get("name") == name
+                       and isinstance(v.get("id"), int)}
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"CurseForge version {name!r}: expected one unique ID, got {len(matches)}; "
+                    "review gameVersionTypeID and configure explicit numeric IDs"
+                )
+            ids.append(next(iter(matches)))
     data = {
         "displayName": f"DDS Manager {args.version} (Velocity)",
         "changelog": notes,
