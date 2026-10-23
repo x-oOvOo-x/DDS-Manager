@@ -8,5 +8,12 @@
     "4.2.0"
   ],
   "minecraft_versions": [],
-  "curseforge_version_ids": []
+  "curseforge_version_ids": [],
+  "minecraft_support_policy": {
+    "minimum": "1.14.4",
+    "current_ceiling": "26.3",
+    "future_26x": "review_each_new_release",
+    "claim": "intended_compatibility_range_not_full_runtime_verification",
+    "per_version_runtime_evidence": "not_recorded"
+  }
 }
