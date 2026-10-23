@@ -99,7 +99,7 @@ class ReleaseUploadTest(unittest.TestCase):
             with patch.object(publisher, "api", side_effect=responses) as http:
                 publisher.publish_modrinth(self.args, {"minecraft_versions": ["1.21.11"]},
                                            self.jar, "notes", self.digest)
-        self.assertEqual(http.call_count, 3)
+        self.assertEqual(http.call_count, 4)
         self.assertIn(b'"project_id": "ABCD1234"', http.call_args.kwargs["data"])
 
     def test_hangar_existing_version_requires_hash_review(self):
