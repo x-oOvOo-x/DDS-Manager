@@ -33,6 +33,7 @@ class ReleaseUploadTest(unittest.TestCase):
             "velocity_versions": ["3.4.0"],
             "minecraft_versions": ["1.21.11"],
             "curseforge_version_ids": [],
+            "minecraft_support_policy": {"minimum": "1.14.4", "current_ceiling": "26.3"},
         }), "utf-8")
         self.args = argparse.Namespace(version=self.version, jar=self.jar, sha256=self.sha,
                                        changelog=self.notes, config=self.config)
